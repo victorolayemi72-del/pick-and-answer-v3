@@ -9,14 +9,15 @@ import {
 
 import {
   getFirestore,
-  collection,
   doc,
-  setDoc,
   getDoc,
+  setDoc,
+  collection,
+  getDocs,
+  runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-// Keep your actual Firebase configuration values here.
 const firebaseConfig = {
   apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
   authDomain: "pick-and-answer-v3.firebaseapp.com",
@@ -37,8 +38,19 @@ export async function signInGuest() {
   return result.user;
 }
 
+function generateRoomCode() {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let code = "";
+
+  for (let i = 0; i < 6; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+
+  return code;
+}
+
 export async function createRoom(user, playerName) {
-  if (!user || !user.uid) {
+  if (!user?.uid) {
     throw new Error("Please sign in first.");
   }
 
@@ -48,35 +60,49 @@ export async function createRoom(user, playerName) {
     throw new Error("Enter a name between 1 and 25 characters.");
   }
 
-  const roomCode = crypto.randomUUID()
-    .replace(/-/g, "")
-    .substring(0, 6)
-    .toUpperCase();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const roomCode = generateRoomCode();
+    const roomRef = doc(db, "rooms", roomCode);
+    const playerRef = doc(db, "rooms", roomCode, "players", user.uid);
 
-  const roomRef = doc(db, "rooms", roomCode);
-  const playerRef = doc(
-    db, "rooms", roomCode, "players", user.uid
-  );
+    try {
+      await runTransaction(db, async (transaction) => {
+        const roomSnap = await transaction.get(roomRef);
 
-  await setDoc(roomRef, {
-    roomCode,
-    createdBy: user.uid,
-    status: "waiting",
-    playerCount: 1,
-    createdAt: serverTimestamp()
-  });
+        if (roomSnap.exists()) {
+          throw new Error("ROOM_CODE_TAKEN");
+        }
 
-  await setDoc(playerRef, {
-    uid: user.uid,
-    displayName: name,
-    online: true,
-    score: 0,
-    joinedAt: serverTimestamp()
-  });
+        transaction.set(roomRef, {
+          roomCode,
+          createdBy: user.uid,
+          status: "waiting",
+          playerCount: 1,
+          createdAt: serverTimestamp()
+        });
 
-  return roomCode;
-    }export async function joinRoom(user, playerName, roomCode) {
-  if (!user || !user.uid) {
+        transaction.set(playerRef, {
+          uid: user.uid,
+          displayName: name,
+          online: true,
+          score: 0,
+          joinedAt: serverTimestamp()
+        });
+      });
+
+      return roomCode;
+    } catch (error) {
+      if (error.message !== "ROOM_CODE_TAKEN") {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Could not generate a room code. Try again.");
+}
+
+export async function joinRoom(user, playerName, roomCode) {
+  if (!user?.uid) {
     throw new Error("Please sign in first.");
   }
 
@@ -87,33 +113,58 @@ export async function createRoom(user, playerName) {
     throw new Error("Enter a valid name.");
   }
 
+  if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) {
+    throw new Error("Enter a valid six-character room code.");
+  }
+
   const roomRef = doc(db, "rooms", code);
-  const roomSnap = await getDoc(roomRef);
+  const playerRef = doc(db, "rooms", code, "players", user.uid);
 
-  if (!roomSnap.exists()) {
-    throw new Error("Room not found. Check the code.");
-  }
+  await runTransaction(db, async (transaction) => {
+    const roomSnap = await transaction.get(roomRef);
 
-  const room = roomSnap.data();
+    if (!roomSnap.exists()) {
+      throw new Error("Room not found. Check the code.");
+    }
 
-  if (room.status !== "waiting") {
-    throw new Error("This room is not accepting players.");
-  }
+    const room = roomSnap.data();
 
-  if (room.createdBy === user.uid) {
-    throw new Error("You cannot join your own room as a second player.");
-  }
+    if (room.status !== "waiting") {
+      throw new Error("This room is not accepting players.");
+    }
 
-  const playersRef = collection(db, "rooms", code, "players");
-  const playerRef = doc(playersRef, user.uid);
+    const playersSnap = await getDocs(
+      collection(db, "rooms", code, "players")
+    );
 
-  await setDoc(playerRef, {
-    uid: user.uid,
-    displayName: name,
-    online: true,
-    score: 0,
-    joinedAt: serverTimestamp()
+    const alreadyJoined = playersSnap.docs.some(
+      (player) => player.id === user.uid
+    );
+
+    if (!alreadyJoined && playersSnap.size >= 2) {
+      throw new Error("This room already has two players.");
+    }
+
+    transaction.set(playerRef, {
+      uid: user.uid,
+      displayName: name,
+      online: true,
+      score: 0,
+      joinedAt: serverTimestamp()
+    });
+
+    transaction.update(roomRef, {
+      playerCount: alreadyJoined ? room.playerCount : playersSnap.size + 1
+    });
   });
 
   return code;
 }
+
+export async function getRoomPlayers(roomCode) {
+  const snapshot = await getDocs(
+    collection(db, "rooms", roomCode, "players")
+  );
+
+  return snapshot.docs.map((player) => player.data());
+          }
