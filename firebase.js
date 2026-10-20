@@ -11,6 +11,7 @@ import {
   getFirestore,
   doc,
   getDoc,
+  getDocs,
   collection,
   onSnapshot,
   runTransaction,
@@ -18,9 +19,9 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
-  // Copy the actual values from your existing firebase.js.
   apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
   authDomain: "pick-and-answer-v3.firebaseapp.com",
+  databaseURL: "https://pick-and-answer-v3-default-rtdb.firebaseio.com",
   projectId: "pick-and-answer-v3",
   storageBucket: "pick-and-answer-v3.firebasestorage.app",
   messagingSenderId: "507310495702",
@@ -53,6 +54,7 @@ export async function createRoom(user, playerName) {
   const name = playerName.trim();
 
   if (!user?.uid) throw new Error("Please sign in first.");
+
   if (!name || name.length > 25) {
     throw new Error("Enter a name between 1 and 25 characters.");
   }
@@ -64,9 +66,9 @@ export async function createRoom(user, playerName) {
 
     try {
       await runTransaction(db, async (transaction) => {
-        const roomSnapshot = await transaction.get(roomRef);
+        const existing = await transaction.get(roomRef);
 
-        if (roomSnapshot.exists()) {
+        if (existing.exists()) {
           throw new Error("ROOM_CODE_TAKEN");
         }
 
@@ -151,77 +153,92 @@ export async function joinRoom(user, playerName, roomCode) {
   return code;
 }
 
-export function watchRoomPlayers(roomCode, callback, onError) {
-  const playersRef = collection(
-    db,
-    "rooms",
-    roomCode.trim().toUpperCase(),
-    "players"
-  );
+export async function loadQuestions() {
+  const snapshot = await getDocs(collection(db, "questions"));
 
-  return onSnapshot(
-    playersRef,
-    (snapshot) => {
-      callback(snapshot.docs.map((item) => item.data()));
-    },
-    (error) => {
-      if (onError) onError(error);
-      else console.error(error);
-    }
-  );
+  const questions = snapshot.docs.map((item) => {
+    const data = item.data();
+
+    return {
+      id: item.id,
+      category: data.category || "General",
+      text:
+        data.question ||
+        data.questionText ||
+        data.text ||
+        data.title ||
+        "",
+      options: Array.isArray(data.options)
+        ? data.options
+        : [
+            data.optionA || data.A,
+            data.optionB || data.B,
+            data.optionC || data.C,
+            data.optionD || data.D
+          ].filter(Boolean),
+      answer: data.correctAnswer || data.answer || "",
+      ...data
+    };
+  }).filter((question) => question.text);
+
+  if (questions.length === 0) {
+    throw new Error(
+      "No readable questions found in Firebase. Check the question fields."
+    );
+  }
+
+  return questions;
 }
 
-export async function getRoom(roomCode) {
-  const roomRef = doc(
-    db,
-    "rooms",
-    roomCode.trim().toUpperCase()
+export function watchRoomPlayers(roomCode, callback, onError) {
+  return onSnapshot(
+    collection(db, "rooms", roomCode.toUpperCase(), "players"),
+    (snapshot) => callback(snapshot.docs.map((item) => item.data())),
+    (error) => onError?.(error)
   );
-
-  const snapshot = await getDoc(roomRef);
-
-  if (!snapshot.exists()) throw new Error("Room not found.");
-
-  return snapshot.data();
 }
 
 export async function startGame(user, roomCode) {
   if (!user?.uid) throw new Error("Please sign in first.");
 
-  const code = roomCode.trim().toUpperCase();
+  const questions = await loadQuestions();
+
+  for (let i = questions.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [questions[i], questions[j]] = [questions[j], questions[i]];
+  }
+
+  const selectedQuestions = questions.slice(0, 20);
+  const code = roomCode.toUpperCase();
+
   const roomRef = doc(db, "rooms", code);
-  const stateRef = doc(db, "rooms", code, "gameState", "current");
   const playerRef = doc(db, "rooms", code, "players", user.uid);
+  const stateRef = doc(db, "rooms", code, "gameState", "current");
 
   await runTransaction(db, async (transaction) => {
     const roomSnapshot = await transaction.get(roomRef);
     const playerSnapshot = await transaction.get(playerRef);
     const stateSnapshot = await transaction.get(stateRef);
 
-    if (!roomSnapshot.exists()) {
-      throw new Error("Room not found.");
-    }
+    if (!roomSnapshot.exists()) throw new Error("Room not found.");
 
     if (!playerSnapshot.exists()) {
       throw new Error("You are not a player in this room.");
     }
 
     if (roomSnapshot.data().playerCount !== 2) {
-      throw new Error("Both players must join before starting.");
+      throw new Error("Both players must join first.");
     }
 
     if (stateSnapshot.exists()) {
-      if (stateSnapshot.data().status === "playing") {
-        throw new Error("The game has already started!");
-      }
-
-      throw new Error("A game state already exists for this room.");
+      throw new Error("A game has already started in this room.");
     }
 
     transaction.set(stateRef, {
       status: "playing",
       currentQuestionIndex: 0,
       currentPlayerUid: roomSnapshot.data().createdBy,
+      questionIds: selectedQuestions.map((question) => question.id),
       player1Score: 0,
       player2Score: 0,
       startedBy: user.uid,
@@ -231,22 +248,9 @@ export async function startGame(user, roomCode) {
 }
 
 export function watchGameState(roomCode, callback, onError) {
-  const stateRef = doc(
-    db,
-    "rooms",
-    roomCode.trim().toUpperCase(),
-    "gameState",
-    "current"
-  );
-
   return onSnapshot(
-    stateRef,
-    (snapshot) => {
-      callback(snapshot.exists() ? snapshot.data() : null);
-    },
-    (error) => {
-      if (onError) onError(error);
-      else console.error(error);
-    }
+    doc(db, "rooms", roomCode.toUpperCase(), "gameState", "current"),
+    (snapshot) => callback(snapshot.exists() ? snapshot.data() : null),
+    (error) => onError?.(error)
   );
 }
