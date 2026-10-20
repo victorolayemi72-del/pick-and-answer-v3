@@ -1,7 +1,6 @@
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
 import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
 import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBPz1I-mkNjn7omzVFJt-WTY-AmMqplKm6o",
@@ -15,9 +14,8 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const storage = getStorage(app);
 export const signInGuest = () => signInAnonymously(auth);
-export { onAuthStateChanged, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, runTransaction, ref, uploadBytes, getDownloadURL };
+export { onAuthStateChanged, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, runTransaction };
 
 export async function saveProfile(uid, profile) {
   await setDoc(doc(db, 'users', uid), { uid, displayName: profile.displayName, photoURL: profile.photoURL || '', avatar: profile.avatar || '🐼', updatedAt: serverTimestamp() }, { merge: true });
@@ -25,13 +23,6 @@ export async function saveProfile(uid, profile) {
 export async function loadProfile(uid) {
   const snap = await getDoc(doc(db, 'users', uid));
   return snap.exists() ? snap.data() : null;
-}
-export async function uploadProfilePhoto(uid, file) {
-  if (!file || !file.type.startsWith('image/')) throw new Error('Choose an image file.');
-  if (file.size > 5 * 1024 * 1024) throw new Error('Image must be 5 MB or smaller.');
-  const path = ref(storage, `profilePictures/${uid}/profile-${Date.now()}`);
-  await uploadBytes(path, file, { contentType: file.type });
-  return getDownloadURL(path);
 }
 export async function createRoom(profile) {
   const uid = auth.currentUser.uid;
