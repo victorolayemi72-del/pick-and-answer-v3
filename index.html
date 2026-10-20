@@ -1,126 +1,396 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pick & Answer ❤️‍🔥</title>
-<style>
-*{box-sizing:border-box}
-body{margin:0;min-height:100vh;display:flex;justify-content:center;align-items:center;padding:20px;background:linear-gradient(135deg,#ffe0ec,#ffc2d8);font-family:Arial,sans-serif}
-.card{width:100%;max-width:420px;background:white;padding:25px 22px;border-radius:22px;text-align:center;box-shadow:0 8px 28px #0002}
-h1{color:#e91e63}
-input,button{width:100%;padding:14px;margin:8px 0;border-radius:10px;font-size:16px}
-input{border:1px solid #ddd}
-button{border:0;background:#e91e63;color:white;font-weight:bold;cursor:pointer}
-button:disabled{opacity:.6}
-.secondary{background:#7c4dff}
-#status{margin-top:15px;overflow-wrap:anywhere}
-#roomResult{display:none;background:#fff0f6;padding:15px;border-radius:12px;margin-top:15px}
-#code{font-size:26px;font-weight:bold;letter-spacing:3px;color:#e91e63}
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pick & Answer ❤️‍🔥</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      min-height: 100vh;
+      font-family: Arial, sans-serif;
+      color: #fff;
+      background: linear-gradient(135deg, #170b20, #40132f, #151525);
+    }
+
+    .container {
+      max-width: 480px;
+      margin: 30px auto;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 18px;
+      padding: 22px;
+      margin-bottom: 18px;
+    }
+
+    h1, h2 {
+      text-align: center;
+    }
+
+    h1 {
+      color: #ff76b7;
+      font-size: 27px;
+    }
+
+    .subtitle {
+      text-align: center;
+      color: #ddd;
+      line-height: 1.5;
+    }
+
+    input {
+      width: 100%;
+      padding: 14px;
+      margin: 8px 0;
+      border: 1px solid #75506b;
+      border-radius: 10px;
+      background: #211629;
+      color: white;
+      font-size: 16px;
+    }
+
+    button {
+      width: 100%;
+      padding: 14px;
+      margin-top: 10px;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      background: #ff4f9a;
+      color: white;
+    }
+
+    button.secondary {
+      background: #493047;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    #status {
+      text-align: center;
+      color: #ffd3e7;
+      overflow-wrap: anywhere;
+      line-height: 1.5;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .room-code {
+      text-align: center;
+      font-size: 32px;
+      font-weight: bold;
+      letter-spacing: 5px;
+      color: #ff8cbe;
+      margin: 20px 0;
+    }
+
+    .player {
+      background: #302039;
+      border-radius: 12px;
+      padding: 15px;
+      margin: 10px 0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      overflow-wrap: anywhere;
+    }
+
+    .badge {
+      color: #8dffbd;
+      font-size: 12px;
+      margin-left: 8px;
+    }
+
+    .waiting {
+      text-align: center;
+      color: #ffd3e7;
+      margin-top: 20px;
+    }
+
+    .small {
+      font-size: 12px;
+      color: #bbb;
+      text-align: center;
+      line-height: 1.5;
+    }
+  </style>
 </head>
+
 <body>
-<main class="card">
-<h1>Pick & Answer ❤️‍🔥</h1>
-<p>The Chemistry Test</p>
+  <main class="container">
 
-<input id="playerName" maxlength="25" placeholder="Enter your name">
-<button id="createRoom">Create a Room</button>
+    <section class="card">
+      <h1>Pick & Answer ❤️‍🔥</h1>
 
-<hr style="border:0;border-top:1px solid #eee;margin:20px 0">
+      <p class="subtitle">
+        The Chemistry Test<br>
+        Two players. One room. Endless questions.
+      </p>
 
-<input id="roomCode" maxlength="6" placeholder="Enter room code">
-<button id="joinRoom">Join a Room</button>
-<button class="secondary" id="adminButton">Admin Panel</button>
+      <p id="status">Connecting to the game...</p>
+    </section>
 
-<div id="roomResult">
-<p id="resultTitle">Your room code is:</p>
-<div id="code"></div>
-<p id="resultMessage">Share this code with the other player.</p>
-<button id="copyCode">Copy Room Code</button>
-</div>
+    <section class="card" id="lobby">
+      <h2>Enter the Game</h2>
 
-<p id="status">Welcome! Enter your name to begin.</p>
-</main>
+      <input
+        id="playerName"
+        type="text"
+        maxlength="25"
+        placeholder="Enter your name"
+        autocomplete="nickname"
+      >
 
-<script type="module">
-import {signInGuest,createRoom,joinRoom} from "./firebase.js";
+      <button id="createBtn" disabled>Create a Room</button>
 
-const $=id=>document.getElementById(id);
-const status=$("status");
-const nameInput=$("playerName");
-const createButton=$("createRoom");
-const joinButton=$("joinRoom");
-const result=$("roomResult");
+      <div style="text-align:center; margin:18px 0;">OR</div>
 
-createButton.addEventListener("click",async()=>{
- const name=nameInput.value.trim();
- if(!name){status.textContent="Please enter your name.";return;}
- createButton.disabled=true;
- joinButton.disabled=true;
- status.textContent="Creating room...";
- result.style.display="none";
+      <input
+        id="roomCodeInput"
+        type="text"
+        maxlength="6"
+        placeholder="Enter 6-character room code"
+        autocomplete="off"
+      >
 
- try{
-  const user=await signInGuest();
-  const code=await createRoom(user,name);
-  $("code").textContent=code;
-  $("resultTitle").textContent="Your room code is:";
-  $("resultMessage").textContent="Share this code with the other player.";
-  $("copyCode").textContent="Copy Room Code";
-  result.style.display="block";
-  status.textContent="Room created successfully!";
- }catch(error){
-  console.error(error);
-  status.textContent="Could not create room: "+error.message;
- }finally{
-  createButton.disabled=false;
-  joinButton.disabled=false;
- }
-});
+      <button id="joinBtn" disabled>Join a Room</button>
 
-joinButton.addEventListener("click",async()=>{
- const name=nameInput.value.trim();
- const code=$("roomCode").value.trim().toUpperCase();
+      <p class="small">
+        Share your room code with the other player.
+      </p>
+    </section>
 
- if(!name){status.textContent="Please enter your name.";return;}
- if(!code){status.textContent="Please enter a room code.";return;}
+    <section class="card hidden" id="roomSection">
+      <h2>Your Room ❤️</h2>
 
- createButton.disabled=true;
- joinButton.disabled=true;
- result.style.display="none";
- status.textContent="Joining room...";
+      <p class="subtitle">Your room code is:</p>
 
- try{
-  const user=await signInGuest();
-  const joinedCode=await joinRoom(user,name,code);
-  $("code").textContent=joinedCode;
-  $("resultTitle").textContent="Room joined!";
-  $("resultMessage").textContent="You have joined room "+joinedCode+".";
-  $("copyCode").textContent="Copy Room Code";
-  result.style.display="block";
-  status.textContent="Joined successfully!";
- }catch(error){
-  console.error(error);
-  status.textContent="Could not join room: "+error.message;
- }finally{
-  createButton.disabled=false;
-  joinButton.disabled=false;
- }
-});
+      <div class="room-code" id="roomCodeDisplay">------</div>
 
-$("copyCode").addEventListener("click",async()=>{
- try{
-  await navigator.clipboard.writeText($("code").textContent);
-  status.textContent="Room code copied!";
- }catch{
-  status.textContent="Copy the displayed code manually.";
- }
-});
+      <button id="copyBtn" class="secondary">Copy Room Code</button>
 
-$("adminButton").addEventListener("click",()=>{
- status.textContent="The Admin Panel is not connected yet.";
-});
-</script>
+      <h2>Players</h2>
+
+      <div id="playersList"></div>
+
+      <p class="waiting" id="waitingMessage">
+        Waiting for the other player to join...
+      </p>
+
+      <button id="leaveBtn" class="secondary">Return to Lobby</button>
+    </section>
+
+  </main>
+
+  <script type="module">
+    import {
+      signInGuest,
+      createRoom,
+      joinRoom,
+      watchRoomPlayers
+    } from "./firebase.js";
+
+    const statusElement = document.getElementById("status");
+    const nameInput = document.getElementById("playerName");
+    const roomInput = document.getElementById("roomCodeInput");
+
+    const createBtn = document.getElementById("createBtn");
+    const joinBtn = document.getElementById("joinBtn");
+
+    const lobby = document.getElementById("lobby");
+    const roomSection = document.getElementById("roomSection");
+
+    const roomCodeDisplay = document.getElementById("roomCodeDisplay");
+    const playersList = document.getElementById("playersList");
+    const waitingMessage = document.getElementById("waitingMessage");
+
+    let currentUser = null;
+    let currentRoomCode = null;
+    let unsubscribePlayers = null;
+    let busy = false;
+
+    function showStatus(message) {
+      statusElement.textContent = message;
+    }
+
+    function setBusy(value) {
+      busy = value;
+      createBtn.disabled = value || !currentUser;
+      joinBtn.disabled = value || !currentUser;
+    }
+
+    function getPlayerName() {
+      const name = nameInput.value.trim();
+
+      if (!name) {
+        throw new Error("Please enter your name first.");
+      }
+
+      if (name.length > 25) {
+        throw new Error("Your name must not exceed 25 characters.");
+      }
+
+      return name;
+    }
+
+    function displayRoom(code) {
+      currentRoomCode = code;
+
+      roomCodeDisplay.textContent = code;
+      lobby.classList.add("hidden");
+      roomSection.classList.remove("hidden");
+
+      showStatus("Room connected successfully!");
+
+      if (unsubscribePlayers) {
+        unsubscribePlayers();
+      }
+
+      unsubscribePlayers = watchRoomPlayers(
+        code,
+        renderPlayers,
+        (error) => {
+          console.error(error);
+          showStatus("Unable to load players. Check Firestore permissions.");
+        }
+      );
+    }
+
+    function renderPlayers(players) {
+      playersList.replaceChildren();
+
+      players.forEach((player, index) => {
+        const row = document.createElement("div");
+        row.className = "player";
+
+        const name = document.createElement("span");
+        name.textContent = player.displayName || "Player";
+
+        const badge = document.createElement("span");
+        badge.className = "badge";
+        badge.textContent = index === 0 ? "HOST" : "PLAYER 2";
+
+        row.append(name, badge);
+        playersList.appendChild(row);
+      });
+
+      if (players.length >= 2) {
+        waitingMessage.textContent =
+          "Both players have joined! ❤️‍🔥";
+
+        showStatus("Both players are connected!");
+      } else {
+        waitingMessage.textContent =
+          "Waiting for the other player to join...";
+      }
+    }
+
+    createBtn.addEventListener("click", async () => {
+      if (busy) return;
+
+      setBusy(true);
+
+      try {
+        const name = getPlayerName();
+
+        showStatus("Creating your room...");
+
+        const code = await createRoom(currentUser, name);
+
+        displayRoom(code);
+      } catch (error) {
+        console.error(error);
+        showStatus(error.message || "Could not create the room.");
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    joinBtn.addEventListener("click", async () => {
+      if (busy) return;
+
+      setBusy(true);
+
+      try {
+        const name = getPlayerName();
+        const code = roomInput.value.trim().toUpperCase();
+
+        if (!code) {
+          throw new Error("Enter the room code first.");
+        }
+
+        showStatus("Joining the room...");
+
+        const joinedCode = await joinRoom(
+          currentUser,
+          name,
+          code
+        );
+
+        displayRoom(joinedCode);
+      } catch (error) {
+        console.error(error);
+        showStatus(error.message || "Could not join the room.");
+      } finally {
+        setBusy(false);
+      }
+    });
+
+    document.getElementById("copyBtn").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(currentRoomCode);
+        showStatus("Room code copied!");
+      } catch {
+        showStatus("Your room code is " + currentRoomCode);
+      }
+    });
+
+    document.getElementById("leaveBtn").addEventListener("click", () => {
+      if (unsubscribePlayers) {
+        unsubscribePlayers();
+        unsubscribePlayers = null;
+      }
+
+      currentRoomCode = null;
+      roomSection.classList.add("hidden");
+      lobby.classList.remove("hidden");
+
+      showStatus("You have returned to the lobby.");
+    });
+
+    async function startApp() {
+      try {
+        showStatus("Signing you in...");
+
+        currentUser = await signInGuest();
+
+        setBusy(false);
+        showStatus("Connected! Enter your name to begin.");
+      } catch (error) {
+        console.error(error);
+        showStatus(
+          "Sign-in failed. Check that Anonymous sign-in is enabled in Firebase Authentication."
+        );
+      }
+    }
+
+    startApp();
+  </script>
 </body>
 </html>
