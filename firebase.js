@@ -38,17 +38,25 @@ export async function signInGuest() {
 }
 
 export async function createRoom(user, playerName) {
-  const roomCode = Math.random()
-    .toString(36)
-    .substring(2, 8)
+  if (!user || !user.uid) {
+    throw new Error("Please sign in first.");
+  }
+
+  const name = playerName.trim();
+
+  if (!name || name.length > 25) {
+    throw new Error("Enter a name between 1 and 25 characters.");
+  }
+
+  const roomCode = crypto.randomUUID()
+    .replace(/-/g, "")
+    .substring(0, 6)
     .toUpperCase();
 
   const roomRef = doc(db, "rooms", roomCode);
-  const existingRoom = await getDoc(roomRef);
-
-  if (existingRoom.exists()) {
-    return createRoom(user, playerName);
-  }
+  const playerRef = doc(
+    db, "rooms", roomCode, "players", user.uid
+  );
 
   await setDoc(roomRef, {
     roomCode,
@@ -58,9 +66,9 @@ export async function createRoom(user, playerName) {
     createdAt: serverTimestamp()
   });
 
-  await setDoc(doc(db, "rooms", roomCode, "players", user.uid), {
+  await setDoc(playerRef, {
     uid: user.uid,
-    displayName: playerName,
+    displayName: name,
     online: true,
     score: 0,
     joinedAt: serverTimestamp()
