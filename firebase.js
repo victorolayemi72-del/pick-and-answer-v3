@@ -1,25 +1,10 @@
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-
-import {
-  getAuth,
-  setPersistence,
-  browserLocalPersistence,
-  signInAnonymously
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-
-import {
-  getFirestore,
-  doc,
-  getDoc,
-  getDocs,
-  collection,
-  onSnapshot,
-  runTransaction,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+import { getAuth, signInAnonymously, onAuthStateChanged } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js';
+import { getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, runTransaction } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-storage.js';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
+  apiKey: "AIzaSyBPz1I-mkNjn7omzVFJt-WTY-AmMqplKm6o",
   authDomain: "pick-and-answer-v3.firebaseapp.com",
   databaseURL: "https://pick-and-answer-v3-default-rtdb.firebaseio.com",
   projectId: "pick-and-answer-v3",
@@ -27,230 +12,71 @@ const firebaseConfig = {
   messagingSenderId: "507310495702",
   appId: "1:507310495702:web:02a3313c286d741803b677"
 };
-
 const app = initializeApp(firebaseConfig);
-
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const signInGuest = () => signInAnonymously(auth);
+export { onAuthStateChanged, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, query, where, orderBy, limit, onSnapshot, serverTimestamp, runTransaction, ref, uploadBytes, getDownloadURL };
 
-export async function signInGuest() {
-  await setPersistence(auth, browserLocalPersistence);
-  const result = await signInAnonymously(auth);
-  return result.user;
+export async function saveProfile(uid, profile) {
+  await setDoc(doc(db, 'users', uid), { uid, displayName: profile.displayName, photoURL: profile.photoURL || '', avatar: profile.avatar || '🐼', updatedAt: serverTimestamp() }, { merge: true });
 }
-
-function generateRoomCode() {
-  const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let code = "";
-
-  for (let i = 0; i < 6; i++) {
-    code += characters[Math.floor(Math.random() * characters.length)];
+export async function loadProfile(uid) {
+  const snap = await getDoc(doc(db, 'users', uid));
+  return snap.exists() ? snap.data() : null;
+}
+export async function uploadProfilePhoto(uid, file) {
+  if (!file || !file.type.startsWith('image/')) throw new Error('Choose an image file.');
+  if (file.size > 5 * 1024 * 1024) throw new Error('Image must be 5 MB or smaller.');
+  const path = ref(storage, `profilePictures/${uid}/profile-${Date.now()}`);
+  await uploadBytes(path, file, { contentType: file.type });
+  return getDownloadURL(path);
+}
+export async function createRoom(profile) {
+  const uid = auth.currentUser.uid;
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const roomRef = doc(db, 'rooms', code);
+    if (!(await getDoc(roomRef)).exists()) {
+      await setDoc(roomRef, { code, createdBy: uid, playerCount: 1, status: 'waiting', createdAt: serverTimestamp() });
+      await setDoc(doc(db, 'rooms', code, 'players', uid), { uid, displayName: profile.displayName, photoURL: profile.photoURL || '', avatar: profile.avatar || '🐼', joinedAt: serverTimestamp() });
+      return code;
+    }
   }
-
+  throw new Error('Could not create a room. Try again.');
+}
+export async function joinRoom(code, profile) {
+  const uid = auth.currentUser.uid;
+  code = code.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(code)) throw new Error('Enter the six-character room code.');
+  const roomRef = doc(db, 'rooms', code);
+  await runTransaction(db, async tx => {
+    const room = await tx.get(roomRef);
+    if (!room.exists()) throw new Error('Room not found. Check the code.');
+    if (room.data().status !== 'waiting') throw new Error('This game has already started.');
+    const playersRef = collection(db, 'rooms', code, 'players');
+    const players = await getDocs(playersRef);
+    if (players.docs.some(p => p.id === uid)) return;
+    if (players.size >= 2) throw new Error('This private room already has two players.');
+    tx.set(doc(db, 'rooms', code, 'players', uid), { uid, displayName: profile.displayName, photoURL: profile.photoURL || '', avatar: profile.avatar || '🐼', joinedAt: serverTimestamp() });
+    tx.update(roomRef, { playerCount: 2 });
+  });
   return code;
 }
-
-export async function createRoom(user, playerName) {
-  const name = playerName.trim();
-
-  if (!user?.uid) throw new Error("Please sign in first.");
-
-  if (!name || name.length > 25) {
-    throw new Error("Enter a name between 1 and 25 characters.");
-  }
-
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const roomCode = generateRoomCode();
-    const roomRef = doc(db, "rooms", roomCode);
-    const playerRef = doc(db, "rooms", roomCode, "players", user.uid);
-
-    try {
-      await runTransaction(db, async (transaction) => {
-        const existing = await transaction.get(roomRef);
-
-        if (existing.exists()) {
-          throw new Error("ROOM_CODE_TAKEN");
-        }
-
-        transaction.set(roomRef, {
-          roomCode,
-          createdBy: user.uid,
-          status: "waiting",
-          playerCount: 1,
-          createdAt: serverTimestamp()
-        });
-
-        transaction.set(playerRef, {
-          uid: user.uid,
-          displayName: name,
-          online: true,
-          score: 0,
-          joinedAt: serverTimestamp()
-        });
-      });
-
-      return roomCode;
-    } catch (error) {
-      if (error.message !== "ROOM_CODE_TAKEN") throw error;
-    }
-  }
-
-  throw new Error("Could not create a room. Please try again.");
-}
-
-export async function joinRoom(user, playerName, roomCode) {
-  const name = playerName.trim();
-  const code = roomCode.trim().toUpperCase();
-
-  if (!user?.uid) throw new Error("Please sign in first.");
-
-  if (!name || name.length > 25) {
-    throw new Error("Enter a name between 1 and 25 characters.");
-  }
-
-  if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) {
-    throw new Error("Enter a valid six-character room code.");
-  }
-
-  const roomRef = doc(db, "rooms", code);
-  const playerRef = doc(db, "rooms", code, "players", user.uid);
-
-  await runTransaction(db, async (transaction) => {
-    const roomSnapshot = await transaction.get(roomRef);
-
-    if (!roomSnapshot.exists()) {
-      throw new Error("Room not found. Check the code.");
-    }
-
-    const playerSnapshot = await transaction.get(playerRef);
-    const room = roomSnapshot.data();
-
-    if (playerSnapshot.exists()) {
-      throw new Error("You have already joined this room.");
-    }
-
-    if (room.status !== "waiting") {
-      throw new Error("This room is no longer accepting players.");
-    }
-
-    if (room.playerCount >= 2) {
-      throw new Error("This room already has two players.");
-    }
-
-    transaction.set(playerRef, {
-      uid: user.uid,
-      displayName: name,
-      online: true,
-      score: 0,
-      joinedAt: serverTimestamp()
-    });
-
-    transaction.update(roomRef, {
-      playerCount: room.playerCount + 1
-    });
-  });
-
-  return code;
-}
-
-export async function loadQuestions() {
-  const snapshot = await getDocs(collection(db, "questions"));
-
-  const questions = snapshot.docs.map((item) => {
-    const data = item.data();
-
-    return {
-      id: item.id,
-      category: data.category || "General",
-      text:
-        data.question ||
-        data.questionText ||
-        data.text ||
-        data.title ||
-        "",
-      options: Array.isArray(data.options)
-        ? data.options
-        : [
-            data.optionA || data.A,
-            data.optionB || data.B,
-            data.optionC || data.C,
-            data.optionD || data.D
-          ].filter(Boolean),
-      answer: data.correctAnswer || data.answer || "",
-      ...data
-    };
-  }).filter((question) => question.text);
-
-  if (questions.length === 0) {
-    throw new Error(
-      "No readable questions found in Firebase. Check the question fields."
-    );
-  }
-
-  return questions;
-}
-
-export function watchRoomPlayers(roomCode, callback, onError) {
-  return onSnapshot(
-    collection(db, "rooms", roomCode.toUpperCase(), "players"),
-    (snapshot) => callback(snapshot.docs.map((item) => item.data())),
-    (error) => onError?.(error)
-  );
-}
-
-export async function startGame(user, roomCode) {
-  if (!user?.uid) throw new Error("Please sign in first.");
-
-  const questions = await loadQuestions();
-
-  for (let i = questions.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [questions[i], questions[j]] = [questions[j], questions[i]];
-  }
-
-  const selectedQuestions = questions.slice(0, 20);
-  const code = roomCode.toUpperCase();
-
-  const roomRef = doc(db, "rooms", code);
-  const playerRef = doc(db, "rooms", code, "players", user.uid);
-  const stateRef = doc(db, "rooms", code, "gameState", "current");
-
-  await runTransaction(db, async (transaction) => {
-    const roomSnapshot = await transaction.get(roomRef);
-    const playerSnapshot = await transaction.get(playerRef);
-    const stateSnapshot = await transaction.get(stateRef);
-
-    if (!roomSnapshot.exists()) throw new Error("Room not found.");
-
-    if (!playerSnapshot.exists()) {
-      throw new Error("You are not a player in this room.");
-    }
-
-    if (roomSnapshot.data().playerCount !== 2) {
-      throw new Error("Both players must join first.");
-    }
-
-    if (stateSnapshot.exists()) {
-      throw new Error("A game has already started in this room.");
-    }
-
-    transaction.set(stateRef, {
-      status: "playing",
-      currentQuestionIndex: 0,
-      currentPlayerUid: roomSnapshot.data().createdBy,
-      questionIds: selectedQuestions.map((question) => question.id),
-      player1Score: 0,
-      player2Score: 0,
-      startedBy: user.uid,
-      startedAt: serverTimestamp()
-    });
-  });
-}
-
-export function watchGameState(roomCode, callback, onError) {
-  return onSnapshot(
-    doc(db, "rooms", roomCode.toUpperCase(), "gameState", "current"),
-    (snapshot) => callback(snapshot.exists() ? snapshot.data() : null),
-    (error) => onError?.(error)
-  );
+export async function startGame(code) {
+  const uid = auth.currentUser.uid;
+  const playersSnap = await getDocs(collection(db, 'rooms', code, 'players'));
+  if (playersSnap.size !== 2) throw new Error('Both players must join before starting.');
+  const roomSnap = await getDoc(doc(db, 'rooms', code));
+  if (roomSnap.data()?.createdBy !== uid) throw new Error('Only the room creator can start the game.');
+  const qs = await getDocs(query(collection(db, 'questions'), limit(500)));
+  const questions = qs.docs.map(d => ({ id: d.id, ...d.data() })).filter(q => q.text || q.question);
+  if (!questions.length) throw new Error('Add questions to the Firestore questions collection first.');
+  questions.sort(() => Math.random() - 0.5);
+  const selected = questions.slice(0, Math.min(20, questions.length));
+  const playerIds = playersSnap.docs.map(d => d.id);
+  await setDoc(doc(db, 'rooms', code, 'gameState', 'current'), { status: 'playing', questionIds: selected.map(q => q.id), currentQuestionIndex: 0, currentPlayerUid: playerIds[0], playerOrder: playerIds, scores: Object.fromEntries(playerIds.map(id => [id, 0])), answers: {}, skipped: [], startedBy: uid, startedAt: serverTimestamp(), turnEndsAt: Date.now() + 30000 });
+  await updateDoc(doc(db, 'rooms', code), { status: 'playing' });
 }
