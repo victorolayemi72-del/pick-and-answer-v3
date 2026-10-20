@@ -11,15 +11,14 @@ import {
   getFirestore,
   doc,
   getDoc,
-  setDoc,
   collection,
   onSnapshot,
   runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-// IMPORTANT: Use your real Firebase configuration values.
 const firebaseConfig = {
+  // Copy the actual values from your existing firebase.js.
   apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
   authDomain: "pick-and-answer-v3.firebaseapp.com",
   projectId: "pick-and-answer-v3",
@@ -51,12 +50,9 @@ function generateRoomCode() {
 }
 
 export async function createRoom(user, playerName) {
-  if (!user?.uid) {
-    throw new Error("Please sign in first.");
-  }
-
   const name = playerName.trim();
 
+  if (!user?.uid) throw new Error("Please sign in first.");
   if (!name || name.length > 25) {
     throw new Error("Enter a name between 1 and 25 characters.");
   }
@@ -93,9 +89,7 @@ export async function createRoom(user, playerName) {
 
       return roomCode;
     } catch (error) {
-      if (error.message !== "ROOM_CODE_TAKEN") {
-        throw error;
-      }
+      if (error.message !== "ROOM_CODE_TAKEN") throw error;
     }
   }
 
@@ -103,12 +97,10 @@ export async function createRoom(user, playerName) {
 }
 
 export async function joinRoom(user, playerName, roomCode) {
-  if (!user?.uid) {
-    throw new Error("Please sign in first.");
-  }
-
   const name = playerName.trim();
   const code = roomCode.trim().toUpperCase();
+
+  if (!user?.uid) throw new Error("Please sign in first.");
 
   if (!name || name.length > 25) {
     throw new Error("Enter a name between 1 and 25 characters.");
@@ -170,8 +162,7 @@ export function watchRoomPlayers(roomCode, callback, onError) {
   return onSnapshot(
     playersRef,
     (snapshot) => {
-      const players = snapshot.docs.map((player) => player.data());
-      callback(players);
+      callback(snapshot.docs.map((item) => item.data()));
     },
     (error) => {
       if (onError) onError(error);
@@ -181,12 +172,81 @@ export function watchRoomPlayers(roomCode, callback, onError) {
 }
 
 export async function getRoom(roomCode) {
-  const roomRef = doc(db, "rooms", roomCode.trim().toUpperCase());
+  const roomRef = doc(
+    db,
+    "rooms",
+    roomCode.trim().toUpperCase()
+  );
+
   const snapshot = await getDoc(roomRef);
 
-  if (!snapshot.exists()) {
-    throw new Error("Room not found.");
-  }
+  if (!snapshot.exists()) throw new Error("Room not found.");
 
   return snapshot.data();
+}
+
+export async function startGame(user, roomCode) {
+  if (!user?.uid) throw new Error("Please sign in first.");
+
+  const code = roomCode.trim().toUpperCase();
+  const roomRef = doc(db, "rooms", code);
+  const stateRef = doc(db, "rooms", code, "gameState", "current");
+  const playerRef = doc(db, "rooms", code, "players", user.uid);
+
+  await runTransaction(db, async (transaction) => {
+    const roomSnapshot = await transaction.get(roomRef);
+    const playerSnapshot = await transaction.get(playerRef);
+    const stateSnapshot = await transaction.get(stateRef);
+
+    if (!roomSnapshot.exists()) {
+      throw new Error("Room not found.");
+    }
+
+    if (!playerSnapshot.exists()) {
+      throw new Error("You are not a player in this room.");
+    }
+
+    if (roomSnapshot.data().playerCount !== 2) {
+      throw new Error("Both players must join before starting.");
+    }
+
+    if (stateSnapshot.exists()) {
+      if (stateSnapshot.data().status === "playing") {
+        throw new Error("The game has already started!");
+      }
+
+      throw new Error("A game state already exists for this room.");
+    }
+
+    transaction.set(stateRef, {
+      status: "playing",
+      currentQuestionIndex: 0,
+      currentPlayerUid: roomSnapshot.data().createdBy,
+      player1Score: 0,
+      player2Score: 0,
+      startedBy: user.uid,
+      startedAt: serverTimestamp()
+    });
+  });
+}
+
+export function watchGameState(roomCode, callback, onError) {
+  const stateRef = doc(
+    db,
+    "rooms",
+    roomCode.trim().toUpperCase(),
+    "gameState",
+    "current"
+  );
+
+  return onSnapshot(
+    stateRef,
+    (snapshot) => {
+      callback(snapshot.exists() ? snapshot.data() : null);
+    },
+    (error) => {
+      if (onError) onError(error);
+      else console.error(error);
+    }
+  );
 }
