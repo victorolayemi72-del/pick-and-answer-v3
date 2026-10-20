@@ -112,9 +112,10 @@
 
   <script type="module">
     import {
-      signInGuest,
-      createRoom
-    } from "./firebase.js";
+  signInGuest,
+  createRoom,
+  joinRoom
+} from "./firebase.js";
 
     const nameInput = document.getElementById("playerName");
     const createButton = document.getElementById("createRoom");
@@ -167,28 +168,36 @@
       });
 
     joinButton.addEventListener("click", async () => {
-      const roomCode = document.getElementById("roomCode")
-        .value.trim().toUpperCase();
+  const name = nameInput.value.trim();
+  const roomCode = document.getElementById("roomCode")
+    .value.trim().toUpperCase();
 
-      if (!nameInput.value.trim()) {
-        status.textContent = "Please enter your name first.";
-        return;
-      }
+  if (!name) {
+    status.textContent = "Please enter your name first.";
+    return;
+  }
 
-      if (!roomCode) {
-        status.textContent = "Please enter a room code.";
-        return;
-      }
+  if (!roomCode) {
+    status.textContent = "Please enter a room code.";
+    return;
+  }
 
-      status.textContent =
-        "Room joining will be implemented in the next step.";
-    });
+  createButton.disabled = true;
+  joinButton.disabled = true;
+  status.textContent = "Joining room...";
 
-    document.getElementById("adminButton")
-      .addEventListener("click", () => {
-        status.textContent =
-          "The secure Admin Panel will be implemented separately.";
-      });
-  </script>
-</body>
-</html>
+  try {
+    const user = await signInGuest();
+    const joinedCode = await joinRoom(user, name, roomCode);
+
+    codeDisplay.textContent = joinedCode;
+    roomResult.style.display = "block";
+    status.textContent = "You joined the room successfully!";
+  } catch (error) {
+    console.error(error);
+    status.textContent = "Unable to join: " + error.message;
+  } finally {
+    createButton.disabled = false;
+    joinButton.disabled = false;
+  }
+});
