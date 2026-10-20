@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pick & Answer ❤️‍🔥</title>
+  <title>Pick & Answer — The Chemistry Test ❤️‍🔥</title>
 
   <style>
     * {
@@ -15,64 +15,45 @@
       padding: 20px;
       min-height: 100vh;
       font-family: Arial, sans-serif;
-      color: #fff;
-      background: linear-gradient(135deg, #170b20, #40132f, #151525);
-    }
-
-    .container {
-      max-width: 480px;
-      margin: 30px auto;
+      background: linear-gradient(135deg, #180d25, #43152f);
+      color: white;
+      text-align: center;
     }
 
     .card {
-      background: rgba(255, 255, 255, 0.08);
-      border: 1px solid rgba(255, 255, 255, 0.15);
-      border-radius: 18px;
-      padding: 22px;
-      margin-bottom: 18px;
-    }
-
-    h1, h2 {
-      text-align: center;
+      max-width: 460px;
+      margin: 25px auto;
+      padding: 25px;
+      background: #281932;
+      border: 1px solid #75405f;
+      border-radius: 20px;
+      box-shadow: 0 8px 25px #0005;
     }
 
     h1 {
-      color: #ff76b7;
+      color: #ff80ab;
       font-size: 27px;
     }
 
-    .subtitle {
-      text-align: center;
-      color: #ddd;
-      line-height: 1.5;
-    }
-
-    input {
+    input, button {
       width: 100%;
       padding: 14px;
       margin: 8px 0;
-      border: 1px solid #75506b;
-      border-radius: 10px;
-      background: #211629;
-      color: white;
-      font-size: 16px;
-    }
-
-    button {
-      width: 100%;
-      padding: 14px;
-      margin-top: 10px;
       border: none;
       border-radius: 10px;
       font-size: 16px;
-      font-weight: bold;
-      cursor: pointer;
-      background: #ff4f9a;
-      color: white;
     }
 
-    button.secondary {
-      background: #493047;
+    input {
+      background: #fff;
+      color: #222;
+    }
+
+    button {
+      background: #ff4081;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
     }
 
     button:disabled {
@@ -80,317 +61,273 @@
       cursor: not-allowed;
     }
 
-    #status {
-      text-align: center;
-      color: #ffd3e7;
-      overflow-wrap: anywhere;
-      line-height: 1.5;
+    .secondary {
+      background: #56375f;
     }
 
     .hidden {
       display: none;
     }
 
-    .room-code {
-      text-align: center;
-      font-size: 32px;
-      font-weight: bold;
-      letter-spacing: 5px;
-      color: #ff8cbe;
-      margin: 20px 0;
-    }
-
-    .player {
-      background: #302039;
-      border-radius: 12px;
-      padding: 15px;
-      margin: 10px 0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
+    #message {
       overflow-wrap: anywhere;
+      color: #ffd1e1;
     }
 
-    .badge {
-      color: #8dffbd;
-      font-size: 12px;
-      margin-left: 8px;
+    #players {
+      padding: 0;
+      list-style: none;
     }
 
-    .waiting {
-      text-align: center;
-      color: #ffd3e7;
-      margin-top: 20px;
+    #players li {
+      margin: 8px 0;
+      padding: 12px;
+      background: #402849;
+      border-radius: 10px;
     }
 
-    .small {
-      font-size: 12px;
-      color: #bbb;
-      text-align: center;
-      line-height: 1.5;
+    .status {
+      padding: 14px;
+      margin-top: 15px;
+      border-radius: 10px;
+      background: #402849;
     }
   </style>
 </head>
 
 <body>
-  <main class="container">
+  <div class="card">
+    <h1>Pick & Answer ❤️‍🔥</h1>
+    <p>The Chemistry Test</p>
 
-    <section class="card">
-      <h1>Pick & Answer ❤️‍🔥</h1>
-
-      <p class="subtitle">
-        The Chemistry Test<br>
-        Two players. One room. Endless questions.
-      </p>
-
-      <p id="status">Connecting to the game...</p>
-    </section>
-
-    <section class="card" id="lobby">
-      <h2>Enter the Game</h2>
-
+    <div id="lobby">
       <input
         id="playerName"
-        type="text"
         maxlength="25"
         placeholder="Enter your name"
         autocomplete="nickname"
       >
 
-      <button id="createBtn" disabled>Create a Room</button>
+      <button id="createBtn">Create a Room</button>
 
-      <div style="text-align:center; margin:18px 0;">OR</div>
+      <hr>
 
       <input
-        id="roomCodeInput"
-        type="text"
+        id="roomInput"
         maxlength="6"
         placeholder="Enter 6-character room code"
         autocomplete="off"
       >
 
-      <button id="joinBtn" disabled>Join a Room</button>
+      <button id="joinBtn" class="secondary">Join a Room</button>
+    </div>
 
-      <p class="small">
-        Share your room code with the other player.
-      </p>
-    </section>
+    <div id="roomSection" class="hidden">
+      <h2>Your Room</h2>
 
-    <section class="card hidden" id="roomSection">
-      <h2>Your Room ❤️</h2>
-
-      <p class="subtitle">Your room code is:</p>
-
-      <div class="room-code" id="roomCodeDisplay">------</div>
+      <p>Room code:</p>
+      <h1 id="roomCodeDisplay"></h1>
 
       <button id="copyBtn" class="secondary">Copy Room Code</button>
 
-      <h2>Players</h2>
+      <h3>Players</h3>
+      <ul id="players"></ul>
 
-      <div id="playersList"></div>
+      <div id="waitingMessage" class="status">
+        Waiting for the second player...
+      </div>
 
-      <p class="waiting" id="waitingMessage">
-        Waiting for the other player to join...
-      </p>
+      <button id="startBtn" class="hidden">
+        Start Game ❤️‍🔥
+      </button>
 
-      <button id="leaveBtn" class="secondary">Return to Lobby</button>
-    </section>
+      <div id="gameSection" class="hidden">
+        <h2>Game Started! 🎉</h2>
+        <p id="gameStatus" class="status"></p>
+        <p id="gameInfo">
+          Your shared game state is ready.
+        </p>
+      </div>
 
-  </main>
+      <button id="returnBtn" class="secondary">Return to Lobby</button>
+    </div>
+
+    <p id="message"></p>
+  </div>
 
   <script type="module">
     import {
       signInGuest,
       createRoom,
       joinRoom,
-      watchRoomPlayers
+      watchRoomPlayers,
+      startGame,
+      watchGameState
     } from "./firebase.js";
 
-    const statusElement = document.getElementById("status");
-    const nameInput = document.getElementById("playerName");
-    const roomInput = document.getElementById("roomCodeInput");
-
-    const createBtn = document.getElementById("createBtn");
-    const joinBtn = document.getElementById("joinBtn");
-
-    const lobby = document.getElementById("lobby");
-    const roomSection = document.getElementById("roomSection");
-
-    const roomCodeDisplay = document.getElementById("roomCodeDisplay");
-    const playersList = document.getElementById("playersList");
-    const waitingMessage = document.getElementById("waitingMessage");
-
     let currentUser = null;
-    let currentRoomCode = null;
-    let unsubscribePlayers = null;
-    let busy = false;
+    let currentRoom = null;
+    let stopPlayersListener = null;
+    let stopGameListener = null;
+    let currentPlayers = [];
 
-    function showStatus(message) {
-      statusElement.textContent = message;
-    }
+    const $ = (id) => document.getElementById(id);
 
-    function setBusy(value) {
-      busy = value;
-      createBtn.disabled = value || !currentUser;
-      joinBtn.disabled = value || !currentUser;
+    function showMessage(message) {
+      $("message").textContent = message;
     }
 
     function getPlayerName() {
-      const name = nameInput.value.trim();
+      const name = $("playerName").value.trim();
 
-      if (!name) {
-        throw new Error("Please enter your name first.");
-      }
-
-      if (name.length > 25) {
-        throw new Error("Your name must not exceed 25 characters.");
+      if (!name || name.length > 25) {
+        throw new Error("Enter your name first.");
       }
 
       return name;
     }
 
-    function displayRoom(code) {
-      currentRoomCode = code;
+    async function runAction(action) {
+      showMessage("");
 
-      roomCodeDisplay.textContent = code;
-      lobby.classList.add("hidden");
-      roomSection.classList.remove("hidden");
-
-      showStatus("Room connected successfully!");
-
-      if (unsubscribePlayers) {
-        unsubscribePlayers();
+      try {
+        await action();
+      } catch (error) {
+        console.error(error);
+        showMessage(error.message || "Something went wrong. Try again.");
       }
+    }
 
-      unsubscribePlayers = watchRoomPlayers(
+    async function initialize() {
+      try {
+        currentUser = await signInGuest();
+      } catch (error) {
+        showMessage("Sign-in failed. Check your Firebase configuration.");
+        console.error(error);
+        $("createBtn").disabled = true;
+        $("joinBtn").disabled = true;
+      }
+    }
+
+    function openRoom(code) {
+      currentRoom = code;
+      $("lobby").classList.add("hidden");
+      $("roomSection").classList.remove("hidden");
+      $("roomCodeDisplay").textContent = code;
+      $("startBtn").classList.add("hidden");
+      $("gameSection").classList.add("hidden");
+
+      if (stopPlayersListener) stopPlayersListener();
+      if (stopGameListener) stopGameListener();
+
+      stopPlayersListener = watchRoomPlayers(
         code,
-        renderPlayers,
-        (error) => {
-          console.error(error);
-          showStatus("Unable to load players. Check Firestore permissions.");
-        }
+        (players) => {
+          currentPlayers = players;
+
+          $("players").replaceChildren();
+
+          players.forEach((player) => {
+            const item = document.createElement("li");
+            item.textContent = player.displayName || "Player";
+            $("players").appendChild(item);
+          });
+
+          const ready = players.length === 2;
+
+          $("waitingMessage").textContent = ready
+            ? "Both players have joined! ❤️‍🔥"
+            : "Waiting for the second player...";
+
+          $("startBtn").classList.toggle("hidden", !ready);
+        },
+        (error) => showMessage("Players could not be loaded: " + error.message)
+      );
+
+      stopGameListener = watchGameState(
+        code,
+        (state) => {
+          if (!state || state.status !== "playing") return;
+
+          $("gameSection").classList.remove("hidden");
+          $("startBtn").classList.add("hidden");
+          $("waitingMessage").textContent = "The game is in progress!";
+
+          const activePlayer = currentPlayers.find(
+            (player) => player.uid === state.currentPlayerUid
+          );
+
+          $("gameStatus").textContent =
+            "Current turn: " +
+            (activePlayer?.displayName || "Starting player");
+
+          $("gameInfo").textContent =
+            "Question " + (state.currentQuestionIndex + 1) +
+            " · Score: " + state.player1Score +
+            " - " + state.player2Score;
+        },
+        (error) => showMessage("Game state error: " + error.message)
       );
     }
 
-    function renderPlayers(players) {
-      playersList.replaceChildren();
-
-      players.forEach((player, index) => {
-        const row = document.createElement("div");
-        row.className = "player";
-
-        const name = document.createElement("span");
-        name.textContent = player.displayName || "Player";
-
-        const badge = document.createElement("span");
-        badge.className = "badge";
-        badge.textContent = index === 0 ? "HOST" : "PLAYER 2";
-
-        row.append(name, badge);
-        playersList.appendChild(row);
+    $("createBtn").addEventListener("click", () => {
+      runAction(async () => {
+        const code = await createRoom(currentUser, getPlayerName());
+        openRoom(code);
+        showMessage("Room created successfully!");
       });
-
-      if (players.length >= 2) {
-        waitingMessage.textContent =
-          "Both players have joined! ❤️‍🔥";
-
-        showStatus("Both players are connected!");
-      } else {
-        waitingMessage.textContent =
-          "Waiting for the other player to join...";
-      }
-    }
-
-    createBtn.addEventListener("click", async () => {
-      if (busy) return;
-
-      setBusy(true);
-
-      try {
-        const name = getPlayerName();
-
-        showStatus("Creating your room...");
-
-        const code = await createRoom(currentUser, name);
-
-        displayRoom(code);
-      } catch (error) {
-        console.error(error);
-        showStatus(error.message || "Could not create the room.");
-      } finally {
-        setBusy(false);
-      }
     });
 
-    joinBtn.addEventListener("click", async () => {
-      if (busy) return;
-
-      setBusy(true);
-
-      try {
-        const name = getPlayerName();
-        const code = roomInput.value.trim().toUpperCase();
-
-        if (!code) {
-          throw new Error("Enter the room code first.");
-        }
-
-        showStatus("Joining the room...");
-
-        const joinedCode = await joinRoom(
+    $("joinBtn").addEventListener("click", () => {
+      runAction(async () => {
+        const code = await joinRoom(
           currentUser,
-          name,
-          code
+          getPlayerName(),
+          $("roomInput").value
         );
 
-        displayRoom(joinedCode);
-      } catch (error) {
-        console.error(error);
-        showStatus(error.message || "Could not join the room.");
-      } finally {
-        setBusy(false);
-      }
+        openRoom(code);
+        showMessage("Joined successfully!");
+      });
     });
 
-    document.getElementById("copyBtn").addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(currentRoomCode);
-        showStatus("Room code copied!");
-      } catch {
-        showStatus("Your room code is " + currentRoomCode);
-      }
+    $("startBtn").addEventListener("click", () => {
+      runAction(async () => {
+        $("startBtn").disabled = true;
+
+        try {
+          await startGame(currentUser, currentRoom);
+          showMessage("Game started successfully! ❤️‍🔥");
+        } finally {
+          $("startBtn").disabled = false;
+        }
+      });
     });
 
-    document.getElementById("leaveBtn").addEventListener("click", () => {
-      if (unsubscribePlayers) {
-        unsubscribePlayers();
-        unsubscribePlayers = null;
-      }
-
-      currentRoomCode = null;
-      roomSection.classList.add("hidden");
-      lobby.classList.remove("hidden");
-
-      showStatus("You have returned to the lobby.");
+    $("copyBtn").addEventListener("click", () => {
+      runAction(async () => {
+        await navigator.clipboard.writeText(currentRoom);
+        showMessage("Room code copied!");
+      });
     });
 
-    async function startApp() {
-      try {
-        showStatus("Signing you in...");
+    $("returnBtn").addEventListener("click", () => {
+      if (stopPlayersListener) stopPlayersListener();
+      if (stopGameListener) stopGameListener();
 
-        currentUser = await signInGuest();
+      currentRoom = null;
+      currentPlayers = [];
 
-        setBusy(false);
-        showStatus("Connected! Enter your name to begin.");
-      } catch (error) {
-        console.error(error);
-        showStatus(
-          "Sign-in failed. Check that Anonymous sign-in is enabled in Firebase Authentication."
-        );
-      }
-    }
+      $("roomSection").classList.add("hidden");
+      $("lobby").classList.remove("hidden");
+      $("gameSection").classList.add("hidden");
+      $("startBtn").classList.add("hidden");
+      $("roomInput").value = "";
 
-    startApp();
+      showMessage("");
+    });
+
+    initialize();
   </script>
 </body>
 </html>
