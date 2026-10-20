@@ -10,12 +10,12 @@ import {
 import { getFirestore } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_AUTH_DOMAIN",
+  apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
+  authDomain: "pick-and-answer-v3.firebaseapp.com",
   projectId: "pick-and-answer-v3",
-  storageBucket: "YOUR_STORAGE_BUCKET",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  storageBucket: "pick-and-answer-v3.firebasestorage.app",
+  messagingSenderId: "507310495702",
+  appId: "1:507310495702:web:02a3313c286d741803b677"
 };
 
 const app = initializeApp(firebaseConfig);
