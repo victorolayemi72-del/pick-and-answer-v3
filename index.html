@@ -3,89 +3,138 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="theme-color" content="#ff4f87">
-  <title>Pick &amp; Answer ❤️‍🔥</title>
+  <title>Pick & Answer ❤️‍🔥</title>
   <style>
     * { box-sizing: border-box; }
     body {
-      margin: 0; min-height: 100vh; padding: 20px;
-      display: flex; align-items: center; justify-content: center;
+      margin: 0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #ffe0ec, #ffc2d8);
       font-family: Arial, sans-serif;
-      background: linear-gradient(135deg, #fff0f5, #ffe0eb);
-      color: #381527;
+      padding: 20px;
     }
-    .container {
-      width: 100%; max-width: 430px; padding: 28px 22px;
-      background: #fff; border-radius: 24px;
-      box-shadow: 0 12px 35px #8c31551c; text-align: center;
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: white;
+      padding: 28px 22px;
+      border-radius: 22px;
+      text-align: center;
+      box-shadow: 0 8px 28px #0002;
     }
-    .logo { font-size: 52px; margin-bottom: 8px; }
-    h1 { margin: 0; color: #e73576; font-size: 29px; }
-    .subtitle { color: #765465; margin-bottom: 25px; line-height: 1.5; }
-    label { display: block; text-align: left; margin: 15px 0 7px; font-weight: bold; }
+    h1 { color: #e91e63; margin-bottom: 5px; }
+    .subtitle { color: #777; margin-bottom: 25px; }
+    input, button {
+      width: 100%;
+      padding: 14px;
+      margin: 8px 0;
+      border-radius: 10px;
+      font-size: 16px;
+    }
     input {
-      width: 100%; padding: 14px; border: 1px solid #f0bfd1;
-      border-radius: 12px; font-size: 16px; outline-color: #e73576;
+      border: 1px solid #ddd;
+      outline-color: #e91e63;
     }
     button {
-      width: 100%; padding: 14px; margin-top: 14px; border: 0;
-      border-radius: 12px; font-size: 16px; font-weight: bold; cursor: pointer;
+      border: none;
+      background: #e91e63;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
     }
-    .primary { background: #e73576; color: #fff; }
-    .secondary { background: #fff0f5; color: #c72864; }
-    .admin { background: #292238; color: #fff; }
-    #status { min-height: 22px; margin-top: 15px; font-size: 14px; overflow-wrap: anywhere; }
-    footer { margin-top: 22px; color: #987d8b; font-size: 12px; }
+    button:disabled { opacity: 0.6; }
+    .secondary { background: #7c4dff; }
+    #status {
+      margin-top: 15px;
+      font-size: 14px;
+      color: #444;
+      overflow-wrap: anywhere;
+    }
   </style>
 </head>
 <body>
-  <main class="container">
-    <div class="logo" aria-hidden="true">💗🎮</div>
-    <h1>Pick &amp; Answer</h1>
-    <p class="subtitle">
-      The Chemistry Test ❤️‍🔥<br>
-      Two players. One room. Let's see how well you know each other!
-    </p>
+  <main class="card">
+    <h1>Pick & Answer ❤️‍🔥</h1>
+    <p class="subtitle">The Chemistry Test</p>
 
-    <label for="playerName">Your name</label>
-    <input id="playerName" type="text" maxlength="30" placeholder="Enter your name" autocomplete="nickname">
+    <input id="playerName" type="text"
+      maxlength="25" placeholder="Enter your name">
 
-    <button class="primary" id="createRoom" type="button">Create a Room</button>
+    <button id="createRoom">Create a Room</button>
 
-    <label for="roomCode">Have a room code?</label>
-    <input id="roomCode" type="text" maxlength="12" placeholder="Enter room code" autocomplete="off">
+    <hr style="border:0;border-top:1px solid #eee;margin:20px 0;">
 
-    <button class="secondary" id="joinRoom" type="button">Join a Room</button>
-    <button class="admin" id="adminButton" type="button">🔐 Admin Panel</button>
+    <input id="roomCode" type="text"
+      maxlength="20" placeholder="Enter room code">
 
-    <p id="status" role="status" aria-live="polite"></p>
-    <footer>Pick &amp; Answer © 2026</footer>
+    <button id="joinRoom">Join a Room</button>
+
+    <button class="secondary" id="adminButton">Admin Panel</button>
+
+    <p id="status">Welcome! Let's get started.</p>
   </main>
 
-  <script>
-    document.getElementById("createRoom").addEventListener("click", () => {
-      const name = document.getElementById("playerName").value.trim();
-      document.getElementById("status").textContent = name
-        ? "Room creation will be enabled when Firebase is connected."
-        : "Please enter your name first.";
-    });
+  <script type="module">
+    import { signInGuest } from "./firebase.js";
 
-    document.getElementById("joinRoom").addEventListener("click", () => {
-      const name = document.getElementById("playerName").value.trim();
-      const code = document.getElementById("roomCode").value.trim();
+    const status = document.getElementById("status");
+    const nameInput = document.getElementById("playerName");
+    const createButton = document.getElementById("createRoom");
+    const joinButton = document.getElementById("joinRoom");
+    const adminButton = document.getElementById("adminButton");
+
+    async function connectGuest() {
+      const name = nameInput.value.trim();
+
       if (!name) {
-        document.getElementById("status").textContent = "Please enter your name first.";
-      } else if (!code) {
-        document.getElementById("status").textContent = "Please enter a room code.";
-      } else {
-        document.getElementById("status").textContent =
-          "Room joining will be enabled when Firebase is connected.";
+        status.textContent = "Please enter your name first.";
+        nameInput.focus();
+        return;
+      }
+
+      status.textContent = "Connecting to Firebase...";
+
+      createButton.disabled = true;
+      joinButton.disabled = true;
+
+      try {
+        const user = await signInGuest();
+        status.textContent =
+          "Firebase connected successfully! Welcome, " + name + ".";
+        console.log("Guest signed in:", user.uid);
+      } catch (error) {
+        console.error(error);
+        status.textContent =
+          "Connection failed: " + error.message;
+      } finally {
+        createButton.disabled = false;
+        joinButton.disabled = false;
+      }
+    }
+
+    createButton.addEventListener("click", connectGuest);
+    joinButton.addEventListener("click", async () => {
+      const code = document.getElementById("roomCode").value.trim();
+
+      if (!code) {
+        status.textContent = "Please enter a room code.";
+        return;
+      }
+
+      await connectGuest();
+
+      if (status.textContent.startsWith("Firebase connected")) {
+        status.textContent =
+          "Firebase connected. Room joining will be added next.";
       }
     });
 
-    document.getElementById("adminButton").addEventListener("click", () => {
-      document.getElementById("status").textContent =
-        "Administrator sign-in will be connected in a later step.";
+    adminButton.addEventListener("click", () => {
+      status.textContent =
+        "The secure Admin Panel will be connected in a later step.";
     });
   </script>
 </body>
