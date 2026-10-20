@@ -1,333 +1,454 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pick & Answer — The Chemistry Test ❤️‍🔥</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pick & Answer ❤️‍🔥</title>
 
-  <style>
-    * {
-      box-sizing: border-box;
-    }
-
-    body {
-      margin: 0;
-      padding: 20px;
-      min-height: 100vh;
-      font-family: Arial, sans-serif;
-      background: linear-gradient(135deg, #180d25, #43152f);
-      color: white;
-      text-align: center;
-    }
-
-    .card {
-      max-width: 460px;
-      margin: 25px auto;
-      padding: 25px;
-      background: #281932;
-      border: 1px solid #75405f;
-      border-radius: 20px;
-      box-shadow: 0 8px 25px #0005;
-    }
-
-    h1 {
-      color: #ff80ab;
-      font-size: 27px;
-    }
-
-    input, button {
-      width: 100%;
-      padding: 14px;
-      margin: 8px 0;
-      border: none;
-      border-radius: 10px;
-      font-size: 16px;
-    }
-
-    input {
-      background: #fff;
-      color: #222;
-    }
-
-    button {
-      background: #ff4081;
-      color: white;
-      font-weight: bold;
-      cursor: pointer;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
-
-    .secondary {
-      background: #56375f;
-    }
-
-    .hidden {
-      display: none;
-    }
-
-    #message {
-      overflow-wrap: anywhere;
-      color: #ffd1e1;
-    }
-
-    #players {
-      padding: 0;
-      list-style: none;
-    }
-
-    #players li {
-      margin: 8px 0;
-      padding: 12px;
-      background: #402849;
-      border-radius: 10px;
-    }
-
-    .status {
-      padding: 14px;
-      margin-top: 15px;
-      border-radius: 10px;
-      background: #402849;
-    }
-  </style>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;padding:18px;min-height:100vh;
+  background:linear-gradient(135deg,#180d25,#531735);
+  color:white;font-family:Arial,sans-serif;text-align:center
+}
+.card{
+  max-width:480px;margin:20px auto;padding:22px;
+  background:#291831;border:1px solid #75405f;
+  border-radius:20px;box-shadow:0 8px 25px #0005
+}
+h1{color:#ff80ab}
+input,button,select{
+  width:100%;padding:13px;margin:7px 0;
+  border:0;border-radius:10px;font-size:16px
+}
+input,select{background:white;color:#222}
+button{background:#ff4081;color:white;font-weight:bold;cursor:pointer}
+button:disabled{opacity:.5}
+.secondary{background:#56375f}
+.hidden{display:none!important}
+#message{overflow-wrap:anywhere;color:#ffd1e1}
+.players{display:flex;justify-content:center;gap:15px;flex-wrap:wrap}
+.player{
+  background:#402849;padding:12px;border-radius:14px;
+  width:140px;overflow-wrap:anywhere
+}
+.avatar{
+  width:75px;height:75px;border-radius:50%;object-fit:cover;
+  background:#75405f;border:2px solid #ff80ab
+}
+#questionBox,.status{
+  background:#402849;padding:16px;margin:12px 0;border-radius:12px
+}
+.option{
+  display:block;width:100%;text-align:left;
+  background:#56375f;border:2px solid transparent
+}
+.option.selected{border-color:#ff80ab;background:#793456}
+#questionText{font-size:19px;line-height:1.5}
+.small{font-size:13px;color:#e6cfe5}
+</style>
 </head>
 
 <body>
-  <div class="card">
-    <h1>Pick & Answer ❤️‍🔥</h1>
-    <p>The Chemistry Test</p>
+<div class="card">
+  <h1>Pick & Answer ❤️‍🔥</h1>
+  <p>The Chemistry Test</p>
 
-    <div id="lobby">
-      <input
-        id="playerName"
-        maxlength="25"
-        placeholder="Enter your name"
-        autocomplete="nickname"
-      >
+  <section id="lobby">
+    <h3>Your Profile</h3>
 
-      <button id="createBtn">Create a Room</button>
+    <img id="myAvatar" class="avatar"
+      alt="Your profile picture"
+      src="https://placehold.co/100x100/56375f/ffffff?text=YOU">
 
-      <hr>
+    <input id="avatarInput" type="file" accept="image/*">
+    <input id="playerName" maxlength="25" placeholder="Enter your name">
 
-      <input
-        id="roomInput"
-        maxlength="6"
-        placeholder="Enter 6-character room code"
-        autocomplete="off"
-      >
+    <button id="saveProfileBtn" class="secondary">Save Profile</button>
 
-      <button id="joinBtn" class="secondary">Join a Room</button>
-    </div>
+    <hr>
 
-    <div id="roomSection" class="hidden">
-      <h2>Your Room</h2>
+    <button id="createBtn">Create a Room</button>
 
-      <p>Room code:</p>
-      <h1 id="roomCodeDisplay"></h1>
+    <input id="roomInput" maxlength="6"
+      placeholder="Enter room code" autocomplete="off">
 
-      <button id="copyBtn" class="secondary">Copy Room Code</button>
+    <button id="joinBtn" class="secondary">Join a Room</button>
+  </section>
 
-      <h3>Players</h3>
-      <ul id="players"></ul>
+  <section id="roomSection" class="hidden">
+    <h2>Room <span id="roomCodeDisplay"></span></h2>
+    <button id="copyBtn" class="secondary">Copy Room Code</button>
 
-      <div id="waitingMessage" class="status">
-        Waiting for the second player...
+    <h3>Players</h3>
+    <div id="players" class="players"></div>
+
+    <p id="waitingMessage" class="status">
+      Waiting for another player...
+    </p>
+
+    <button id="startBtn" class="hidden">Start Game ❤️‍🔥</button>
+
+    <section id="gameSection" class="hidden">
+      <h2>Game Time 🎉</h2>
+
+      <div id="scoreBox" class="status">Score: 0 - 0</div>
+
+      <div id="questionBox">
+        <p id="questionCategory" class="small"></p>
+        <p id="questionText">Loading question...</p>
+        <div id="options"></div>
       </div>
 
-      <button id="startBtn" class="hidden">
-        Start Game ❤️‍🔥
-      </button>
+      <p id="turnStatus" class="status"></p>
+      <p id="answerStatus" class="small"></p>
 
-      <div id="gameSection" class="hidden">
-        <h2>Game Started! 🎉</h2>
-        <p id="gameStatus" class="status"></p>
-        <p id="gameInfo">
-          Your shared game state is ready.
-        </p>
-      </div>
+      <button id="submitAnswerBtn">Submit Answer</button>
+      <button id="nextBtn" class="secondary hidden">Next Question</button>
+    </section>
 
-      <button id="returnBtn" class="secondary">Return to Lobby</button>
-    </div>
+    <button id="returnBtn" class="secondary">Return to Lobby</button>
+  </section>
 
-    <p id="message"></p>
-  </div>
+  <p id="message"></p>
+</div>
 
-  <script type="module">
-    import {
-      signInGuest,
-      createRoom,
-      joinRoom,
-      watchRoomPlayers,
-      startGame,
-      watchGameState
-    } from "./firebase.js";
+<script type="module">
+import {
+  signInGuest,
+  createRoom,
+  joinRoom,
+  watchRoomPlayers,
+  loadQuestions,
+  startGame,
+  watchGameState,
+  db
+} from "./firebase.js";
 
-    let currentUser = null;
-    let currentRoom = null;
-    let stopPlayersListener = null;
-    let stopGameListener = null;
-    let currentPlayers = [];
+import {
+  doc,
+  setDoc,
+  getDoc,
+  updateDoc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
-    const $ = (id) => document.getElementById(id);
+let user = null;
+let roomCode = null;
+let players = [];
+let questions = [];
+let gameState = null;
+let selectedAnswer = null;
+let playerProfiles = {};
+let stopPlayers = null;
+let stopGame = null;
+let answering = false;
 
-    function showMessage(message) {
-      $("message").textContent = message;
-    }
+const $ = id => document.getElementById(id);
 
-    function getPlayerName() {
-      const name = $("playerName").value.trim();
+function message(text) {
+  $("message").textContent = text;
+}
 
-      if (!name || name.length > 25) {
-        throw new Error("Enter your name first.");
+function safeText(value) {
+  return String(value ?? "");
+}
+
+async function action(fn) {
+  message("");
+  try {
+    await fn();
+  } catch (error) {
+    console.error(error);
+    message(error.message || "Something went wrong.");
+  }
+}
+
+function getName() {
+  const name = $("playerName").value.trim();
+  if (!name || name.length > 25) {
+    throw new Error("Enter a name between 1 and 25 characters.");
+  }
+  return name;
+}
+
+/* Profile pictures are stored locally on this device for now. */
+$("avatarInput").addEventListener("change", () => {
+  const file = $("avatarInput").files[0];
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    message("Please select an image.");
+    return;
+  }
+
+  if (file.size > 3 * 1024 * 1024) {
+    message("Choose an image smaller than 3 MB.");
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    $("myAvatar").src = reader.result;
+    localStorage.setItem("pa_avatar", reader.result);
+  };
+  reader.readAsDataURL(file);
+});
+
+$("saveProfileBtn").addEventListener("click", () => {
+  action(async () => {
+    const name = getName();
+    localStorage.setItem("pa_name", name);
+    message("Profile saved on this device! ❤️");
+  });
+});
+
+function loadProfile() {
+  $("playerName").value = localStorage.getItem("pa_name") || "";
+  $("myAvatar").src =
+    localStorage.getItem("pa_avatar") ||
+    "https://placehold.co/100x100/56375f/ffffff?text=YOU";
+}
+
+async function savePlayerProfile() {
+  const name = getName();
+  const avatar = localStorage.getItem("pa_avatar") || "";
+
+  playerProfiles[user.uid] = { name, avatar };
+
+  // Save the name to the player's room record.
+  // Profile-picture persistence will be added with storage permissions.
+  await updateDoc(
+    doc(db, "rooms", roomCode, "players", user.uid),
+    { displayName: name }
+  );
+}
+
+async function enterRoom(code) {
+  roomCode = code;
+
+  $("lobby").classList.add("hidden");
+  $("roomSection").classList.remove("hidden");
+  $("roomCodeDisplay").textContent = code;
+
+  if (stopPlayers) stopPlayers();
+  if (stopGame) stopGame();
+
+  stopPlayers = watchRoomPlayers(
+    code,
+    async data => {
+      players = data;
+      renderPlayers();
+
+      const ready = players.length === 2;
+      $("waitingMessage").textContent = ready
+        ? "Both players have joined! ❤️‍🔥"
+        : "Waiting for the second player...";
+
+      $("startBtn").classList.toggle("hidden", !ready);
+
+      if (gameState?.status === "playing") {
+        await renderQuestion();
       }
+    },
+    error => message("Player error: " + error.message)
+  );
 
-      return name;
-    }
+  stopGame = watchGameState(
+    code,
+    async state => {
+      gameState = state;
 
-    async function runAction(action) {
-      showMessage("");
-
-      try {
-        await action();
-      } catch (error) {
-        console.error(error);
-        showMessage(error.message || "Something went wrong. Try again.");
-      }
-    }
-
-    async function initialize() {
-      try {
-        currentUser = await signInGuest();
-      } catch (error) {
-        showMessage("Sign-in failed. Check your Firebase configuration.");
-        console.error(error);
-        $("createBtn").disabled = true;
-        $("joinBtn").disabled = true;
-      }
-    }
-
-    function openRoom(code) {
-      currentRoom = code;
-      $("lobby").classList.add("hidden");
-      $("roomSection").classList.remove("hidden");
-      $("roomCodeDisplay").textContent = code;
-      $("startBtn").classList.add("hidden");
-      $("gameSection").classList.add("hidden");
-
-      if (stopPlayersListener) stopPlayersListener();
-      if (stopGameListener) stopGameListener();
-
-      stopPlayersListener = watchRoomPlayers(
-        code,
-        (players) => {
-          currentPlayers = players;
-
-          $("players").replaceChildren();
-
-          players.forEach((player) => {
-            const item = document.createElement("li");
-            item.textContent = player.displayName || "Player";
-            $("players").appendChild(item);
-          });
-
-          const ready = players.length === 2;
-
-          $("waitingMessage").textContent = ready
-            ? "Both players have joined! ❤️‍🔥"
-            : "Waiting for the second player...";
-
-          $("startBtn").classList.toggle("hidden", !ready);
-        },
-        (error) => showMessage("Players could not be loaded: " + error.message)
-      );
-
-      stopGameListener = watchGameState(
-        code,
-        (state) => {
-          if (!state || state.status !== "playing") return;
-
-          $("gameSection").classList.remove("hidden");
-          $("startBtn").classList.add("hidden");
-          $("waitingMessage").textContent = "The game is in progress!";
-
-          const activePlayer = currentPlayers.find(
-            (player) => player.uid === state.currentPlayerUid
-          );
-
-          $("gameStatus").textContent =
-            "Current turn: " +
-            (activePlayer?.displayName || "Starting player");
-
-          $("gameInfo").textContent =
-            "Question " + (state.currentQuestionIndex + 1) +
-            " · Score: " + state.player1Score +
-            " - " + state.player2Score;
-        },
-        (error) => showMessage("Game state error: " + error.message)
-      );
-    }
-
-    $("createBtn").addEventListener("click", () => {
-      runAction(async () => {
-        const code = await createRoom(currentUser, getPlayerName());
-        openRoom(code);
-        showMessage("Room created successfully!");
-      });
-    });
-
-    $("joinBtn").addEventListener("click", () => {
-      runAction(async () => {
-        const code = await joinRoom(
-          currentUser,
-          getPlayerName(),
-          $("roomInput").value
-        );
-
-        openRoom(code);
-        showMessage("Joined successfully!");
-      });
-    });
-
-    $("startBtn").addEventListener("click", () => {
-      runAction(async () => {
-        $("startBtn").disabled = true;
+      if (state?.status === "playing") {
+        $("gameSection").classList.remove("hidden");
 
         try {
-          await startGame(currentUser, currentRoom);
-          showMessage("Game started successfully! ❤️‍🔥");
-        } finally {
-          $("startBtn").disabled = false;
+          questions = await loadQuestions();
+          await renderQuestion();
+        } catch (error) {
+          message("Question error: " + error.message);
         }
-      });
+      }
+    },
+    error => message("Game error: " + error.message)
+  );
+}
+
+function renderPlayers() {
+  $("players").replaceChildren();
+
+  players.forEach(player => {
+    const box = document.createElement("div");
+    box.className = "player";
+
+    const image = document.createElement("img");
+    image.className = "avatar";
+    image.alt = "Player profile";
+    image.src =
+      player.uid === user.uid
+        ? (localStorage.getItem("pa_avatar") ||
+           "https://placehold.co/100x100/56375f/ffffff?text=YOU")
+        : "https://placehold.co/100x100/56375f/ffffff?text=PLAYER";
+
+    const name = document.createElement("p");
+    name.textContent = player.displayName || "Player";
+
+    box.append(image, name);
+    $("players").appendChild(box);
+  });
+}
+
+function getCurrentQuestion() {
+  if (!gameState || !questions.length) return null;
+
+  const questionId =
+    gameState.questionIds?.[gameState.currentQuestionIndex];
+
+  return questions.find(q => q.id === questionId) || null;
+}
+
+async function renderQuestion() {
+  if (!gameState || gameState.status !== "playing") return;
+
+  const question = getCurrentQuestion();
+
+  if (!question) {
+    $("questionText").textContent =
+      "Question not found. Check your Firebase question IDs.";
+    $("options").replaceChildren();
+    return;
+  }
+
+  $("gameSection").classList.remove("hidden");
+  $("questionCategory").textContent = question.category || "General";
+  $("questionText").textContent =
+    question.text || question.question || "Question unavailable";
+
+  $("scoreBox").textContent =
+    "Score: " + (gameState.player1Score || 0) +
+    " - " + (gameState.player2Score || 0);
+
+  const activePlayer = players.find(
+    p => p.uid === gameState.currentPlayerUid
+  );
+
+  $("turnStatus").textContent =
+    activePlayer?.uid === user.uid
+      ? "It's your turn! ❤️‍🔥"
+      : "Waiting for " + (activePlayer?.displayName || "the other player");
+
+  $("answerStatus").textContent = "";
+  $("options").replaceChildren();
+  selectedAnswer = null;
+
+  const options = Array.isArray(question.options)
+    ? question.options
+    : [];
+
+  options.forEach((option, index) => {
+    const button = document.createElement("button");
+    button.className = "option";
+    button.textContent =
+      typeof option === "object"
+        ? safeText(option.text || option.label || option.value)
+        : safeText(option);
+
+    button.addEventListener("click", () => {
+      selectedAnswer = index;
+      document.querySelectorAll(".option").forEach(
+        b => b.classList.remove("selected")
+      );
+      button.classList.add("selected");
     });
 
-    $("copyBtn").addEventListener("click", () => {
-      runAction(async () => {
-        await navigator.clipboard.writeText(currentRoom);
-        showMessage("Room code copied!");
-      });
-    });
+    $("options").appendChild(button);
+  });
 
-    $("returnBtn").addEventListener("click", () => {
-      if (stopPlayersListener) stopPlayersListener();
-      if (stopGameListener) stopGameListener();
+  const myTurn = activePlayer?.uid === user.uid;
+  $("submitAnswerBtn").classList.toggle("hidden", !myTurn);
+}
 
-      currentRoom = null;
-      currentPlayers = [];
+$("createBtn").addEventListener("click", () => {
+  action(async () => {
+    const name = getName();
+    localStorage.setItem("pa_name", name);
+    user = user || await signInGuest();
 
-      $("roomSection").classList.add("hidden");
-      $("lobby").classList.remove("hidden");
-      $("gameSection").classList.add("hidden");
-      $("startBtn").classList.add("hidden");
-      $("roomInput").value = "";
+    const code = await createRoom(user, name);
+    await enterRoom(code);
+  });
+});
 
-      showMessage("");
-    });
+$("joinBtn").addEventListener("click", () => {
+  action(async () => {
+    const name = getName();
+    localStorage.setItem("pa_name", name);
+    user = user || await signInGuest();
 
-    initialize();
-  </script>
+    const code = await joinRoom(user, name, $("roomInput").value);
+    await enterRoom(code);
+  });
+});
+
+$("startBtn").addEventListener("click", () => {
+  action(async () => {
+    user = user || await signInGuest();
+    await startGame(user, roomCode);
+    message("Game started!");
+  });
+});
+
+/*
+ * Answer submission and turn advancement require their own
+ * Firestore rules and transaction logic. Do not mark an answer
+ * correct or change the turn from the browser alone.
+ */
+$("submitAnswerBtn").addEventListener("click", () => {
+  action(async () => {
+    if (selectedAnswer === null) {
+      throw new Error("Choose an answer first.");
+    }
+
+    throw new Error(
+      "Answer submission is the next development step. Your selection is ready."
+    );
+  });
+});
+
+$("nextBtn").addEventListener("click", () => {
+  message("The synchronized next-question system is coming next.");
+});
+
+$("copyBtn").addEventListener("click", () => {
+  action(async () => {
+    await navigator.clipboard.writeText(roomCode);
+    message("Room code copied!");
+  });
+});
+
+$("returnBtn").addEventListener("click", () => {
+  if (stopPlayers) stopPlayers();
+  if (stopGame) stopGame();
+
+  roomCode = null;
+  gameState = null;
+  players = [];
+
+  $("roomSection").classList.add("hidden");
+  $("lobby").classList.remove("hidden");
+  $("gameSection").classList.add("hidden");
+  message("");
+});
+
+loadProfile();
+
+try {
+  user = await signInGuest();
+} catch (error) {
+  console.error(error);
+  message("Sign-in failed. Check your Firebase Authentication settings.");
+}
+</script>
 </body>
 </html>
