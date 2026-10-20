@@ -13,11 +13,12 @@ import {
   getDoc,
   setDoc,
   collection,
-  getDocs,
+  onSnapshot,
   runTransaction,
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
+// IMPORTANT: Use your real Firebase configuration values.
 const firebaseConfig = {
   apiKey: "AIzaSyBPz1I-mkNjn7omzVFJtWT-YAmMqplKm6o",
   authDomain: "pick-and-answer-v3.firebaseapp.com",
@@ -39,11 +40,11 @@ export async function signInGuest() {
 }
 
 function generateRoomCode() {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  const characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
 
   for (let i = 0; i < 6; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    code += characters[Math.floor(Math.random() * characters.length)];
   }
 
   return code;
@@ -67,9 +68,9 @@ export async function createRoom(user, playerName) {
 
     try {
       await runTransaction(db, async (transaction) => {
-        const roomSnap = await transaction.get(roomRef);
+        const roomSnapshot = await transaction.get(roomRef);
 
-        if (roomSnap.exists()) {
+        if (roomSnapshot.exists()) {
           throw new Error("ROOM_CODE_TAKEN");
         }
 
@@ -98,7 +99,7 @@ export async function createRoom(user, playerName) {
     }
   }
 
-  throw new Error("Could not generate a room code. Try again.");
+  throw new Error("Could not create a room. Please try again.");
 }
 
 export async function joinRoom(user, playerName, roomCode) {
@@ -110,7 +111,7 @@ export async function joinRoom(user, playerName, roomCode) {
   const code = roomCode.trim().toUpperCase();
 
   if (!name || name.length > 25) {
-    throw new Error("Enter a valid name.");
+    throw new Error("Enter a name between 1 and 25 characters.");
   }
 
   if (!/^[A-HJ-NP-Z2-9]{6}$/.test(code)) {
@@ -121,27 +122,24 @@ export async function joinRoom(user, playerName, roomCode) {
   const playerRef = doc(db, "rooms", code, "players", user.uid);
 
   await runTransaction(db, async (transaction) => {
-    const roomSnap = await transaction.get(roomRef);
+    const roomSnapshot = await transaction.get(roomRef);
 
-    if (!roomSnap.exists()) {
+    if (!roomSnapshot.exists()) {
       throw new Error("Room not found. Check the code.");
     }
 
-    const room = roomSnap.data();
+    const playerSnapshot = await transaction.get(playerRef);
+    const room = roomSnapshot.data();
 
-    if (room.status !== "waiting") {
-      throw new Error("This room is not accepting players.");
+    if (playerSnapshot.exists()) {
+      throw new Error("You have already joined this room.");
     }
 
-    const playersSnap = await getDocs(
-      collection(db, "rooms", code, "players")
-    );
+    if (room.status !== "waiting") {
+      throw new Error("This room is no longer accepting players.");
+    }
 
-    const alreadyJoined = playersSnap.docs.some(
-      (player) => player.id === user.uid
-    );
-
-    if (!alreadyJoined && playersSnap.size >= 2) {
+    if (room.playerCount >= 2) {
       throw new Error("This room already has two players.");
     }
 
@@ -154,17 +152,41 @@ export async function joinRoom(user, playerName, roomCode) {
     });
 
     transaction.update(roomRef, {
-      playerCount: alreadyJoined ? room.playerCount : playersSnap.size + 1
+      playerCount: room.playerCount + 1
     });
   });
 
   return code;
 }
 
-export async function getRoomPlayers(roomCode) {
-  const snapshot = await getDocs(
-    collection(db, "rooms", roomCode, "players")
+export function watchRoomPlayers(roomCode, callback, onError) {
+  const playersRef = collection(
+    db,
+    "rooms",
+    roomCode.trim().toUpperCase(),
+    "players"
   );
 
-  return snapshot.docs.map((player) => player.data());
-          }
+  return onSnapshot(
+    playersRef,
+    (snapshot) => {
+      const players = snapshot.docs.map((player) => player.data());
+      callback(players);
+    },
+    (error) => {
+      if (onError) onError(error);
+      else console.error(error);
+    }
+  );
+}
+
+export async function getRoom(roomCode) {
+  const roomRef = doc(db, "rooms", roomCode.trim().toUpperCase());
+  const snapshot = await getDoc(roomRef);
+
+  if (!snapshot.exists()) {
+    throw new Error("Room not found.");
+  }
+
+  return snapshot.data();
+}
