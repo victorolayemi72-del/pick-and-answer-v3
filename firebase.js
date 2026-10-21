@@ -59,96 +59,75 @@ export {
   runTransaction
 };
 
-// Normalize profiles so the app always receives valid values.
 function normalizeProfile(profile = {}) {
   return {
-    displayName:
-      String(profile.displayName || "").trim().slice(0, 30),
-
-    photoURL:
-      typeof profile.photoURL === "string"
-        ? profile.photoURL
-        : "",
-
-    avatar:
-      typeof profile.avatar === "string" && profile.avatar
-        ? profile.avatar
-        : "🐼"
+    displayName: String(profile.displayName || "").trim().slice(0, 30),
+    photoURL: typeof profile.photoURL === "string"
+      ? profile.photoURL
+      : "",
+    avatar: typeof profile.avatar === "string" && profile.avatar
+      ? profile.avatar
+      : "🐼"
   };
 }
 
-// SAVE PLAYER PROFILE
+// Save profile
 export async function saveProfile(uid, profile = {}) {
   if (!uid) {
-    throw new Error("Please sign in before saving your profile.");
-  }
-
-  const normalized = normalizeProfile(profile);
-
-  if (!normalized.displayName) {
-    throw new Error("Enter a display name before saving.");
-  }
-
-  // Avoid storing unexpectedly large images in Firestore.
-  if (normalized.photoURL.length > 250000) {
-    throw new Error(
-      "This picture is too large. Choose a smaller image."
-    );
-  }
-
-  const profileRef = doc(db, "users", uid);
-
-  await setDoc(
-    profileRef,
-    {
-      uid,
-      displayName: normalized.displayName,
-      photoURL: normalized.photoURL,
-      avatar: normalized.avatar,
-      updatedAt: serverTimestamp()
-    },
-    { merge: true }
-  );
-
-  // Return the saved profile for the interface to use.
-  return normalized;
-}
-
-// LOAD PLAYER PROFILE
-export async function loadProfile(uid) {
-  if (!uid) {
-    throw new Error("Please sign in before loading your profile.");
-  }
-
-  const profileSnap = await getDoc(doc(db, "users", uid));
-
-  if (!profileSnap.exists()) {
-    return null;
-  }
-
-  return normalizeProfile(profileSnap.data());
-}
-
-// CREATE PRIVATE ROOM
-export async function createRoom(profile) {
-  if (!auth.currentUser) {
     throw new Error("Please wait for sign-in to finish.");
   }
 
-  const uid = auth.currentUser.uid;
   const normalized = normalizeProfile(profile);
 
-  if (!normalized.displayName) {
+  if (normalized.displayName.length < 2) {
+    throw new Error("Enter a name with at least 2 characters.");
+  }
+
+  if (normalized.photoURL.length > 250000) {
+    throw new Error("Picture too large. Please choose another picture.");
+  }
+
+  await setDoc(doc(db, "users", uid), {
+    uid,
+    ...normalized,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  return normalized;
+}
+
+// Load profile
+export async function loadProfile(uid) {
+  if (!uid) return null;
+
+  const snapshot = await getDoc(doc(db, "users", uid));
+
+  return snapshot.exists()
+    ? normalizeProfile(snapshot.data())
+    : null;
+}
+
+// Create a private room
+export async function createRoom(profile) {
+  const user = auth.currentUser;
+
+  if (!user) {
+    throw new Error("Please wait for sign-in to finish.");
+  }
+
+  const normalized = normalizeProfile(profile);
+
+  if (normalized.displayName.length < 2) {
     throw new Error("Enter your display name first.");
   }
 
-  for (let i = 0; i < 8; i++) {
+  for (let attempt = 0; attempt < 8; attempt++) {
     const code = Math.random()
       .toString(36)
       .slice(2, 8)
       .toUpperCase();
 
-    if (code.length !== 6) continue;
+    if (!/^[A-Z0-9]{6}$/.test(code)) continue;
 
     const roomRef = doc(db, "rooms", code);
     const existing = await getDoc(roomRef);
@@ -157,19 +136,17 @@ export async function createRoom(profile) {
 
     await setDoc(roomRef, {
       code,
-      createdBy: uid,
+      createdBy: user.uid,
       playerCount: 1,
       status: "waiting",
       createdAt: serverTimestamp()
     });
 
     await setDoc(
-      doc(db, "rooms", code, "players", uid),
+      doc(db, "rooms", code, "players", user.uid),
       {
-        uid,
-        displayName: normalized.displayName,
-        photoURL: normalized.photoURL,
-        avatar: normalized.avatar,
+        uid: user.uid,
+        ...normalized,
         joinedAt: serverTimestamp()
       }
     );
@@ -180,44 +157,147 @@ export async function createRoom(profile) {
   throw new Error("Could not create a room. Please try again.");
 }
 
-// JOIN PRIVATE ROOM
+// Join a private room
 export async function joinRoom(code, profile) {
-  if (!auth.currentUser) {
+  const user = auth.currentUser;
+
+  if (!user) {
     throw new Error("Please wait for sign-in to finish.");
-  }
-
-  const uid = auth.currentUser.uid;
-  const normalized = normalizeProfile(profile);
-
-  if (!normalized.displayName) {
-    throw new Error("Enter your display name first.");
   }
 
   code = String(code || "").trim().toUpperCase();
 
   if (!/^[A-Z0-9]{6}$/.test(code)) {
-    throw new Error("Enter the six-character room code.");
+    throw new Error("Enter a valid six-character room code.");
+  }
+
+  const normalized = normalizeProfile(profile);
+  const roomRef = doc(db, "rooms", code);
+  const playerRef = doc(db, "rooms", code, "players", user.uid);
+
+  await runTransaction(db, async transaction => {
+    const roomSnapshot = await transaction.get(roomRef);
+
+    if (!roomSnapshot.exists()) {
+      throw new Error("Room not found. Check the room code.");
+    }
+
+    const room = roomSnapshot.data();
+
+    if (room.status !== "waiting") {
+      throw new Error("This game has already started.");
+    }
+
+    const playerSnapshot = await transaction.get(playerRef);
+
+    if (playerSnapshot.exists()) return;
+
+    if (Number(room.playerCount || 0) >= 2) {
+      throw new Error("This room already has two players.");
+    }
+
+    transaction.set(playerRef, {
+      uid: user.uid,
+      ...normalized,
+      joinedAt: serverTimestamp()
+    });
+
+    transaction.update(roomRef, {
+      playerCount: 2
+    });
+  });
+
+  return code;
+}
+
+// Start a game
+export async function startGame(code) {
+  if (!auth.currentUser) {
+    throw new Error("Please wait for sign-in to finish.");
   }
 
   const roomRef = doc(db, "rooms", code);
 
-  await runTransaction(db, async tx => {
-    const room = await tx.get(roomRef);
+  const roomSnapshot = await getDoc(roomRef);
 
-    if (!room.exists()) {
-      throw new Error("Room not found. Check the code.");
-    }
+  if (!roomSnapshot.exists()) {
+    throw new Error("Room not found.");
+  }
 
-    if (room.data().status !== "waiting") {
-      throw new Error("This game has already started.");
-    }
+  if (roomSnapshot.data().createdBy !== auth.currentUser.uid) {
+    throw new Error("Only the room creator can start the game.");
+  }
 
-    const playerRef = doc(
-      db,
-      "rooms",
-      code,
-      "players",
-      uid
+  if (roomSnapshot.data().status !== "waiting") {
+    throw new Error("This game has already started.");
+  }
+
+  const playersSnapshot = await getDocs(
+    collection(db, "rooms", code, "players")
+  );
+
+  if (playersSnapshot.size !== 2) {
+    throw new Error("Two players must join before starting.");
+  }
+
+  const playerOrder = playersSnapshot.docs.map(player => player.id);
+
+  const questionsSnapshot = await getDocs(
+    query(collection(db, "questions"), limit(500))
+  );
+
+  const questions = questionsSnapshot.docs
+    .map(snapshot => {
+      const data = snapshot.data();
+
+      const text = data.text ?? data.Text ?? data.question ?? data.Question;
+      const category = data.category ?? data.Category ?? "General";
+      const options = data.options ?? data.Options ?? [];
+      const answer = data.answer ?? data.Answer ?? data.correctAnswer;
+
+      const active = data.active ?? data.Active ?? true;
+
+      return {
+        id: snapshot.id,
+        text: typeof text === "string" ? text : "",
+        category,
+        options: Array.isArray(options) ? options : [],
+        answer,
+        active
+      };
+    })
+    .filter(question =>
+      question.text &&
+      question.active !== false &&
+      question.active !== "false"
     );
 
-    const
+  if (!questions.length) {
+    throw new Error("No active questions were found in Firestore.");
+  }
+
+  // Randomize the questions and use up to 20.
+  questions.sort(() => Math.random() - 0.5);
+
+  const selected = questions.slice(0, 20);
+
+  const stateRef = doc(db, "rooms", code, "gameState", "current");
+
+  await setDoc(stateRef, {
+    status: "playing",
+    playerOrder,
+    currentPlayerUid: playerOrder[0],
+    currentQuestionIndex: 0,
+    questionIds: selected.map(question => question.id),
+    questions: selected,
+    scores: Object.fromEntries(playerOrder.map(id => [id, 0])),
+    turnEndsAt: Date.now() + 30000,
+    startedAt: serverTimestamp()
+  });
+
+  await updateDoc(roomRef, {
+    status: "playing"
+  });
+
+  return true;
+}
