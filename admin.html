@@ -1,27 +1,167 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Pick & Answer Admin</title><link rel="stylesheet" href="admin.css"></head>
-<body><main class="admin-app">
-<header><div><h1>🛠️ Pick &amp; Answer Admin</h1><p>Manage question bank and categories</p></div><a href="index.html">← Back to game</a></header>
-<div id="adminNotice" class="notice" role="status"></div>
-<section class="panel" id="loginPanel"><h2>Administrator sign-in</h2><p>Sign in with the Google account that is authorized in Firestore rules.</p><button id="adminLogin" class="primary">Continue with Google</button><p class="muted">If sign-in is blocked, enable Google as a provider in Firebase Authentication.</p></section>
-<section class="panel hidden" id="managerPanel">
-<div class="row"><h2>Question manager</h2><button id="adminLogout" class="secondary">Sign out</button></div>
-<form id="questionForm">
-<input id="editId" type="hidden">
-<label for="qText">Question</label><textarea id="qText" required maxlength="1000" rows="3" placeholder="Type the question"></textarea>
-<label for="qCategory">Category</label><input id="qCategory" required maxlength="60" placeholder="Biology, Chemistry, Aptitude…">
-<div class="options-grid">
-<div><label for="option0">Option A</label><input id="option0" required maxlength="300"></div>
-<div><label for="option1">Option B</label><input id="option1" required maxlength="300"></div>
-<div><label for="option2">Option C</label><input id="option2" maxlength="300"></div>
-<div><label for="option3">Option D</label><input id="option3" maxlength="300"></div>
-</div>
-<label for="correctAnswer">Correct answer</label><select id="correctAnswer" required><option value="0">A</option><option value="1">B</option><option value="2">C</option><option value="3">D</option></select>
-<label class="check"><input id="qActive" type="checkbox" checked> Active (include in games)</label>
-<div class="row"><button class="primary" type="submit" id="saveQuestion">Save question</button><button class="secondary" type="button" id="clearForm">Clear form</button></div>
-</form>
-<div class="row list-heading"><h2>Questions</h2><span id="questionCount">0 questions</span></div>
-<label for="filterCategory">Filter by category</label><select id="filterCategory"><option value="">All categories</option></select>
-<div id="questionList" class="question-list"></div>
-</section>
-</main><script type="module" src="admin.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pick & Answer — Admin Panel</title>
+
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      padding: 20px;
+      background: #f4f5fb;
+      color: #202238;
+      font-family: Arial, sans-serif;
+    }
+
+    main {
+      max-width: 700px;
+      margin: 20px auto;
+    }
+
+    section {
+      background: white;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 14px;
+      box-shadow: 0 3px 12px #00000010;
+    }
+
+    h1, h2 {
+      margin-top: 0;
+    }
+
+    input, select, textarea, button {
+      width: 100%;
+      padding: 12px;
+      margin: 7px 0;
+      border-radius: 8px;
+      font-size: 16px;
+    }
+
+    input, select, textarea {
+      border: 1px solid #ccc;
+    }
+
+    button {
+      border: 0;
+      background: #5546d8;
+      color: white;
+      font-weight: bold;
+      cursor: pointer;
+    }
+
+    button:disabled {
+      opacity: 0.6;
+    }
+
+    .danger {
+      background: #c62828;
+    }
+
+    #adminMessage {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      padding: 12px;
+      border-radius: 8px;
+      background: #eee;
+      margin: 12px 0;
+    }
+
+    .question {
+      border: 1px solid #ddd;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+
+<body>
+<main>
+  <h1>Pick & Answer Admin Panel</h1>
+
+  <section>
+    <h2>Admin Sign-In</h2>
+
+    <p>Sign in with your authorized Google account to manage questions.</p>
+
+    <button id="googleSignIn" type="button">
+      Sign in with Google
+    </button>
+
+    <button id="signOutButton" type="button" class="danger hidden">
+      Sign Out
+    </button>
+
+    <p id="adminMessage" role="status">
+      Please sign in to continue.
+    </p>
+  </section>
+
+  <section id="questionSection" class="hidden">
+    <h2>Add a Question</h2>
+
+    <form id="questionForm">
+      <label for="questionText">Question</label>
+      <textarea id="questionText" required rows="3"></textarea>
+
+      <label for="questionCategory">Category</label>
+      <select id="questionCategory" required>
+        <option value="">Choose category</option>
+        <option value="Truth">Truth</option>
+        <option value="Dare">Dare</option>
+        <option value="Flirty">Flirty</option>
+        <option value="Romantic">Romantic</option>
+        <option value="Funny">Funny</option>
+        <option value="Deep">Deep</option>
+        <option value="Random">Random</option>
+      </select>
+
+      <label for="optionA">Option A</label>
+      <input id="optionA" required>
+
+      <label for="optionB">Option B</label>
+      <input id="optionB" required>
+
+      <label for="optionC">Option C (optional)</label>
+      <input id="optionC">
+
+      <label for="optionD">Option D (optional)</label>
+      <input id="optionD">
+
+      <label for="correctAnswer">Correct answer</label>
+      <select id="correctAnswer" required>
+        <option value="">Choose answer</option>
+        <option value="0">Option A</option>
+        <option value="1">Option B</option>
+        <option value="2">Option C</option>
+        <option value="3">Option D</option>
+      </select>
+
+      <button id="addQuestionButton" type="submit">
+        Save Question
+      </button>
+    </form>
+  </section>
+
+  <section id="questionsSection" class="hidden">
+    <h2>Saved Questions</h2>
+    <button id="refreshQuestions" type="button">
+      Refresh Questions
+    </button>
+    <div id="questionList"></div>
+  </section>
+</main>
+
+<script type="module" src="./admin.js"></script>
+</body>
+</html>
