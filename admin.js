@@ -2,7 +2,8 @@ import { auth, db } from "./firebase.js";
 
 import {
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
@@ -19,63 +20,48 @@ import {
 const $ = id => document.getElementById(id);
 
 const provider = new GoogleAuthProvider();
-
-provider.setCustomParameters({
-  prompt: "select_account"
-});
+provider.setCustomParameters({ prompt: "select_account" });
 
 let currentAdmin = null;
 let busy = false;
 
 function message(text, error = false) {
   const box = $("adminMessage");
+  if (!box) return;
+
   box.textContent = text;
   box.style.background = error ? "#ffe5e5" : "#e2ffe8";
   box.style.color = "#222";
 }
 
 function showAdmin(show) {
-  $("questionSection").classList.toggle("hidden", !show);
-  $("questionsSection").classList.toggle("hidden", !show);
-  $("googleSignIn").classList.toggle("hidden", show);
-  $("signOutButton").classList.toggle("hidden", !show);
+  $("questionSection")?.classList.toggle("hidden", !show);
+  $("questionsSection")?.classList.toggle("hidden", !show);
+  $("googleSignIn")?.classList.toggle("hidden", show);
+  $("signOutButton")?.classList.toggle("hidden", !show);
 }
 
 async function login() {
   if (busy) return;
 
   busy = true;
-  $("googleSignIn").disabled = true;
+  const button = $("googleSignIn");
+  if (button) button.disabled = true;
+
   message("Opening Google sign-in...");
 
   try {
-    const result = await signInWithPopup(auth, provider);
-    const user = result.user;
-
-    if (!user.email || !user.emailVerified) {
-      await signOut(auth);
-      throw new Error("Use a verified Google account.");
-    }
-
-    currentAdmin = user;
-    showAdmin(true);
-
-    message("Signed in as " + user.email);
-
-    await loadQuestions();
-
+    await signInWithRedirect(auth, provider);
   } catch (error) {
-    console.error("Google sign-in error:", error);
-
+    console.error("Google redirect error:", error);
     message(
-      "Sign-in failed: " +
-      (error.code || "") + "\n" +
-      (error.message || "Unknown error"),
+      "Sign-in failed: " + (error.code || "") +
+      "\n" + (error.message || "Unknown error"),
       true
     );
-  } finally {
+
     busy = false;
-    $("googleSignIn").disabled = false;
+    if (button) button.disabled = false;
   }
 }
 
@@ -84,7 +70,7 @@ async function logout() {
     await signOut(auth);
     currentAdmin = null;
     showAdmin(false);
-    message("You have signed out.");
+    message("Signed out successfully.");
   } catch (error) {
     message("Sign-out failed: " + error.message, true);
   }
@@ -94,22 +80,22 @@ async function loadQuestions() {
   if (!currentAdmin) return;
 
   const list = $("questionList");
+  if (!list) return;
+
   list.textContent = "Loading questions...";
 
   try {
     const snapshot = await getDocs(collection(db, "questions"));
-
     list.replaceChildren();
 
     if (snapshot.empty) {
-      list.textContent =
-        "No questions have been added yet. Add your first question above.";
+      list.textContent = "No questions added yet.";
+      message("Signed in. No questions found.");
       return;
     }
 
     snapshot.forEach(item => {
       const data = item.data();
-
       const card = document.createElement("div");
       card.className = "question";
 
@@ -128,8 +114,7 @@ async function loadQuestions() {
       remove.textContent = "Delete question";
 
       remove.addEventListener("click", async () => {
-        if (!currentAdmin) return;
-        if (!confirm("Delete this question?")) return;
+        if (!currentAdmin || !confirm("Delete this question?")) return;
 
         try {
           await deleteDoc(doc(db, "questions", item.id));
@@ -137,8 +122,8 @@ async function loadQuestions() {
           await loadQuestions();
         } catch (error) {
           message(
-            "Delete failed: " +
-            (error.code || "") + " " + error.message,
+            "Delete failed: " + (error.code || "") +
+            "\n" + error.message,
             true
           );
         }
@@ -152,12 +137,11 @@ async function loadQuestions() {
 
   } catch (error) {
     console.error("Question loading error:", error);
-
     list.textContent = "Could not load questions.";
 
     message(
-      "Loading failed: " +
-      (error.code || "") + "\n" + error.message,
+      "Loading failed: " + (error.code || "") +
+      "\n" + error.message,
       true
     );
   }
@@ -174,14 +158,14 @@ async function saveQuestion(event) {
   const text = $("questionText").value.trim();
   const category = $("questionCategory").value;
 
-  const optionFields = [
+  const fields = [
     $("optionA").value.trim(),
     $("optionB").value.trim(),
     $("optionC").value.trim(),
     $("optionD").value.trim()
   ];
 
-  const options = optionFields.filter(Boolean);
+  const options = fields.filter(Boolean);
   const answerIndex = Number($("correctAnswer").value);
 
   if (!text || !category || options.length < 2) {
@@ -190,15 +174,17 @@ async function saveQuestion(event) {
   }
 
   if (
+    $("correctAnswer").value === "" ||
     !Number.isInteger(answerIndex) ||
     answerIndex < 0 ||
     answerIndex >= options.length
   ) {
-    message("Choose a correct answer that has been provided.", true);
+    message("Select a valid correct answer.", true);
     return;
   }
 
-  $("addQuestionButton").disabled = true;
+  const saveButton = $("addQuestionButton");
+  if (saveButton) saveButton.disabled = true;
 
   try {
     await addDoc(collection(db, "questions"), {
@@ -212,40 +198,60 @@ async function saveQuestion(event) {
     });
 
     $("questionForm").reset();
-
     message("Question saved successfully.");
-
     await loadQuestions();
 
   } catch (error) {
-    console.error("Saving question error:", error);
-
+    console.error("Question save error:", error);
     message(
-      "Could not save question: " +
-      (error.code || "") + "\n" + error.message,
+      "Save failed: " + (error.code || "") +
+      "\n" + error.message,
       true
     );
   } finally {
-    $("addQuestionButton").disabled = false;
+    if (saveButton) saveButton.disabled = false;
   }
 }
 
-$("googleSignIn").addEventListener("click", login);
-$("signOutButton").addEventListener("click", logout);
-$("questionForm").addEventListener("submit", saveQuestion);
-$("refreshQuestions").addEventListener("click", loadQuestions);
+$("googleSignIn")?.addEventListener("click", login);
+$("signOutButton")?.addEventListener("click", logout);
+$("questionForm")?.addEventListener("submit", saveQuestion);
+$("refreshQuestions")?.addEventListener("click", loadQuestions);
+
+// Process the result after Google redirects back to this page.
+try {
+  const result = await getRedirectResult(auth);
+
+  if (result?.user) {
+    currentAdmin = result.user;
+
+    if (!currentAdmin.emailVerified) {
+      await signOut(auth);
+      currentAdmin = null;
+      showAdmin(false);
+      message("Use a verified Google account.", true);
+    }
+  }
+} catch (error) {
+  console.error("Redirect result error:", error);
+  message(
+    "Google sign-in failed: " + (error.code || "") +
+    "\n" + error.message,
+    true
+  );
+}
 
 onAuthStateChanged(auth, user => {
-  if (user && user.providerData.some(
-    providerInfo => providerInfo.providerId === "google.com"
-  )) {
-    currentAdmin = user;
-    showAdmin(true);
-    message("Signed in as " + user.email);
+  const isGoogleUser = user &&
+    user.providerData.some(p => p.providerId === "google.com");
+
+  currentAdmin = isGoogleUser ? user : null;
+  showAdmin(Boolean(currentAdmin));
+
+  if (currentAdmin) {
+    message("Signed in as " + currentAdmin.email);
     loadQuestions();
   } else {
-    currentAdmin = null;
-    showAdmin(false);
     message("Please sign in with your admin Google account.");
   }
 });
