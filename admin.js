@@ -1,73 +1,243 @@
 import {
-  auth, db, onAuthStateChanged, collection, doc, getDocs, addDoc, setDoc,
-  updateDoc, deleteDoc, query, orderBy, serverTimestamp, GoogleAuthProvider,
-  signInWithPopup, signOut
+  auth,
+  db
 } from "./firebase.js";
 
-const $=id=>document.getElementById(id);
-let questions=[], editingId="";
-function msg(text,type=""){const el=$("adminNotice");el.textContent=text;el.className="notice show"+(type?" "+type:"");}
-function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-$("adminLogin").addEventListener("click",async()=>{
-  try{const provider=new GoogleAuthProvider();provider.setCustomParameters({prompt:"select_account"});await signInWithPopup(auth,provider);}
-  catch(e){msg(`Google sign-in failed: ${e.message}`,"error");}
+import {
+  GoogleAuthProvider,
+  signInWithPopup,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-auth.js";
+
+import {
+  collection,
+  addDoc,
+  getDocs,
+  deleteDoc,
+  doc,
+  serverTimestamp
+} from "https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+
+const provider = new GoogleAuthProvider();
+
+provider.setCustomParameters({
+  prompt: "select_account"
 });
-$("adminLogout").addEventListener("click",async()=>{try{await signOut(auth);msg("Signed out.");}catch(e){msg(e.message,"error");}});
-onAuthStateChanged(auth,user=>{
-  const admin=user && !user.isAnonymous && user.email;
-  $("loginPanel").classList.toggle("hidden",!!admin);$("managerPanel").classList.toggle("hidden",!admin);
-  if(admin)loadQuestions();
+
+let currentAdmin = null;
+
+function showMessage(message, error = false) {
+  let box = $("adminMessage");
+
+  if (!box) {
+    box = document.createElement("div");
+    box.id = "adminMessage";
+    box.style.cssText =
+      "padding:12px;margin:12px 0;border-radius:8px;overflow-wrap:anywhere;";
+    document.body.prepend(box);
+  }
+
+  box.textContent = message;
+  box.style.background = error ? "#ffe5e5" : "#e2ffe8";
+  box.style.color = "#222";
+}
+
+function showLogin() {
+  let button = $("googleSignIn");
+
+  if (!button) {
+    button = [...document.querySelectorAll("button")]
+      .find(b => /google|sign.?in|login/i.test(b.textContent));
+
+  }
+
+  if (button) {
+    button.hidden = false;
+    button.disabled = false;
+  }
+}
+
+async function adminLogin() {
+  try {
+    showMessage("Opening Google sign-in...");
+
+    const result = await signInWithPopup(auth, provider);
+    const user = result.user;
+
+    if (!user.email || !user.emailVerified) {
+      await signOut(auth);
+      showMessage(
+        "Please use a verified Google account.",
+        true
+      );
+      return;
+    }
+
+    currentAdmin = user;
+
+    showMessage(
+      "Google sign-in successful: " + user.email
+    );
+
+    await loadQuestions();
+
+  } catch (error) {
+    console.error("Admin sign-in error:", error);
+
+    showMessage(
+      "Sign-in failed.\nError code: " +
+      (error.code || "unknown") +
+      "\nDetails: " +
+      (error.message || "No additional details"),
+      true
+    );
+  }
+}
+
+async function loadQuestions() {
+  if (!currentAdmin) return;
+
+  try {
+    const snapshot = await getDocs(collection(db, "questions"));
+
+    showMessage(
+      "Signed in as " + currentAdmin.email +
+      ". Questions found: " + snapshot.size
+    );
+
+    const list = $("questionList");
+
+    if (list) {
+      list.replaceChildren();
+
+      snapshot.forEach(item => {
+        const data = item.data();
+        const row = document.createElement("div");
+
+        const title = document.createElement("span");
+        title.textContent =
+          (data.category || "Uncategorized") +
+          ": " + (data.text || "Untitled question");
+
+        row.appendChild(title);
+        row.appendChild(document.createElement("br"));
+
+        const remove = document.createElement("button");
+        remove.textContent = "Delete";
+
+        remove.addEventListener("click", async () => {
+          if (!confirm("Delete this question?")) return;
+
+          try {
+            await deleteDoc(doc(db, "questions", item.id));
+            showMessage("Question deleted.");
+            await loadQuestions();
+          } catch (error) {
+            showMessage(
+              "Delete failed: " + error.message,
+              true
+            );
+          }
+        });
+
+        row.appendChild(remove);
+        list.appendChild(row);
+      });
+    }
+  } catch (error) {
+    console.error("Question loading error:", error);
+
+    showMessage(
+      "Could not load questions: " +
+      (error.code || "") + " " + error.message,
+      true
+    );
+  }
+}
+
+async function addQuestion(event) {
+  event.preventDefault();
+
+  if (!currentAdmin) {
+    showMessage("Sign in with your admin Google account first.", true);
+    return;
+  }
+
+  const text = $("questionText")?.value.trim();
+  const category = $("questionCategory")?.value.trim();
+  const options = [
+    $("optionA")?.value.trim(),
+    $("optionB")?.value.trim(),
+    $("optionC")?.value.trim(),
+    $("optionD")?.value.trim()
+  ].filter(Boolean);
+
+  const answer = $("correctAnswer")?.value;
+
+  if (!text || !category || options.length < 2 || !answer) {
+    showMessage(
+      "Complete the question, category, at least two options, and correct answer.",
+      true
+    );
+    return;
+  }
+
+  try {
+    await addDoc(collection(db, "questions"), {
+      text,
+      category,
+      options,
+      correctAnswer: answer,
+      createdBy: currentAdmin.uid,
+      createdAt: serverTimestamp(),
+      active: true
+    });
+
+    showMessage("Question added successfully.");
+
+    $("questionForm")?.reset();
+
+    await loadQuestions();
+
+  } catch (error) {
+    console.error("Add question error:", error);
+
+    showMessage(
+      "Could not add question: " +
+      (error.code || "") + " " + error.message,
+      true
+    );
+  }
+}
+
+const loginButton = $("googleSignIn");
+
+if (loginButton) {
+  loginButton.addEventListener("click", adminLogin);
+} else {
+  showMessage(
+    "The Google sign-in button was not found. Check admin.html.",
+    true
+  );
+}
+
+const form = $("questionForm");
+
+if (form) {
+  form.addEventListener("submit", addQuestion);
+}
+
+onAuthStateChanged(auth, user => {
+  if (user && user.providerData.some(
+    item => item.providerId === "google.com"
+  )) {
+    currentAdmin = user;
+    loadQuestions();
+  } else {
+    currentAdmin = null;
+    showLogin();
+  }
 });
-async function loadQuestions(){
-  try{
-    const snap=await getDocs(query(collection(db,"questions"),orderBy("category")));
-    questions=snap.docs.map(d=>({id:d.id,...d.data()}));renderList();renderCategories();
-    msg(`Signed in as ${auth.currentUser.email}. If loading is denied, add this email to firestore.rules and publish the rules.`, "success");
-  }catch(e){msg(`Could not load questions: ${e.message}. Check that this Google email is authorized in firestore.rules and publish the rules.`,"error");}
-}
-function renderCategories(){
-  const current=$("filterCategory").value;const cats=[...new Set(questions.map(q=>q.category||"General"))].sort();
-  $("filterCategory").innerHTML='<option value="">All categories</option>'+cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");
-  if(cats.includes(current))$("filterCategory").value=current;
-}
-function renderList(){
-  const filter=$("filterCategory").value;
-  const list=questions.filter(q=>!filter||q.category===filter);
-  $("questionCount").textContent=`${questions.length} questions · ${questions.filter(q=>q.active!==false).length} active`;
-  $("questionList").innerHTML=list.map(q=>{
-    const opts=Array.isArray(q.options)?q.options:[];
-    const answerIndex=opts.findIndex(o=>String(o)===String(q.answer));
-    return `<article class="question-item"><small>${esc(q.category||"General")} · ${q.active===false?"Inactive":"Active"}</small><p><strong>${esc(q.text)}</strong></p><p>${opts.map((o,i)=>`${"ABCD"[i]||i+1}. ${esc(o)}`).join("<br>")}</p><p><strong>Answer:</strong> ${"ABCD"[answerIndex]||esc(q.answer)}</p><div class="actions"><button class="secondary" data-edit="${q.id}">Edit</button><button class="delete" data-delete="${q.id}">Delete</button></div></article>`;
-  }).join("")||"<p>No questions found. Add one using the form above.</p>";
-  $("questionList").querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click",()=>editQuestion(b.dataset.edit)));
-  $("questionList").querySelectorAll("[data-delete]").forEach(b=>b.addEventListener("click",()=>removeQuestion(b.dataset.delete)));
-}
-$("filterCategory").addEventListener("change",renderList);
-function clearForm(){editingId="";$("questionForm").reset();$("editId").value="";$("qActive").checked=true;$("saveQuestion").textContent="Save question";}
-$("clearForm").addEventListener("click",clearForm);
-function editQuestion(id){
-  const q=questions.find(x=>x.id===id);if(!q)return;editingId=id;$("editId").value=id;$("qText").value=q.text||"";$("qCategory").value=q.category||"General";
-  const opts=Array.isArray(q.options)?q.options:[];for(let i=0;i<4;i++)$(`option${i}`).value=opts[i]||"";
-  let index=opts.findIndex(o=>String(o)===String(q.answer));if(index<0&&Number.isInteger(q.answer))index=q.answer;
-  $("correctAnswer").value=String(Math.max(0,Math.min(3,index)));$("qActive").checked=q.active!==false;$("saveQuestion").textContent="Update question";window.scrollTo({top:0,behavior:"smooth"});
-}
-$("questionForm").addEventListener("submit",async e=>{
-  e.preventDefault();const text=$("qText").value.trim(),category=$("qCategory").value.trim();
-  const options=[0,1,2,3].map(i=>$(`option${i}`).value.trim()).filter(Boolean);
-  const answerIndex=Number($("correctAnswer").value);
-  if(options.length<2){msg("Enter at least two answer options.","error");return;}
-  if(answerIndex>=options.length){msg("The selected correct answer has no option. Fill that option or choose another answer.","error");return;}
-  const payload={text,category,options,answer:options[answerIndex],active:$("qActive").checked,updatedAt:serverTimestamp()};
-  try{
-    $("saveQuestion").disabled=true;
-    if(editingId)await updateDoc(doc(db,"questions",editingId),payload);
-    else await addDoc(collection(db,"questions"),{...payload,createdAt:serverTimestamp()});
-    msg(editingId?"Question updated.":"Question added.","success");clearForm();await loadQuestions();
-  }catch(err){msg(`Could not save question: ${err.message}`,"error");}
-  finally{$("saveQuestion").disabled=false;}
-});
-async function removeQuestion(id){
-  const q=questions.find(x=>x.id===id);if(!q||!confirm(`Delete this question?\n\n${q.text}`))return;
-  try{await deleteDoc(doc(db,"questions",id));questions=questions.filter(x=>x.id!==id);renderList();renderCategories();msg("Question deleted.","success");}
-  catch(e){msg(`Could not delete question: ${e.message}`,"error");}
-}
