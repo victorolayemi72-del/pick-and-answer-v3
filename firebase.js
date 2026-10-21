@@ -59,6 +59,7 @@ export {
   runTransaction
 };
 
+// SAVE PLAYER PROFILE
 export async function saveProfile(uid, profile) {
   await setDoc(
     doc(db, "users", uid),
@@ -73,11 +74,14 @@ export async function saveProfile(uid, profile) {
   );
 }
 
+// LOAD PLAYER PROFILE
 export async function loadProfile(uid) {
   const snap = await getDoc(doc(db, "users", uid));
+
   return snap.exists() ? snap.data() : null;
 }
 
+// CREATE PRIVATE ROOM
 export async function createRoom(profile) {
   const uid = auth.currentUser.uid;
 
@@ -86,6 +90,8 @@ export async function createRoom(profile) {
       .toString(36)
       .slice(2, 8)
       .toUpperCase();
+
+    if (code.length !== 6) continue;
 
     const roomRef = doc(db, "rooms", code);
     const existing = await getDoc(roomRef);
@@ -99,13 +105,16 @@ export async function createRoom(profile) {
         createdAt: serverTimestamp()
       });
 
-      await setDoc(doc(db, "rooms", code, "players", uid), {
-        uid,
-        displayName: profile.displayName,
-        photoURL: profile.photoURL || "",
-        avatar: profile.avatar || "🐼",
-        joinedAt: serverTimestamp()
-      });
+      await setDoc(
+        doc(db, "rooms", code, "players", uid),
+        {
+          uid,
+          displayName: profile.displayName,
+          photoURL: profile.photoURL || "",
+          avatar: profile.avatar || "🐼",
+          joinedAt: serverTimestamp()
+        }
+      );
 
       return code;
     }
@@ -114,8 +123,10 @@ export async function createRoom(profile) {
   throw new Error("Could not create a room. Try again.");
 }
 
+// JOIN PRIVATE ROOM
 export async function joinRoom(code, profile) {
   const uid = auth.currentUser.uid;
+
   code = code.trim().toUpperCase();
 
   if (!/^[A-Z0-9]{6}$/.test(code)) {
@@ -135,13 +146,22 @@ export async function joinRoom(code, profile) {
       throw new Error("This game has already started.");
     }
 
-    const playerRef = doc(db, "rooms", code, "players", uid);
+    const playerRef = doc(
+      db,
+      "rooms",
+      code,
+      "players",
+      uid
+    );
+
     const player = await tx.get(playerRef);
 
     if (player.exists()) return;
 
     if (room.data().playerCount >= 2) {
-      throw new Error("This private room already has two players.");
+      throw new Error(
+        "This private room already has two players."
+      );
     }
 
     tx.set(playerRef, {
@@ -160,58 +180,158 @@ export async function joinRoom(code, profile) {
   return code;
 }
 
+// NORMALIZE EXISTING FIRESTORE QUESTIONS
+function normalizeQuestion(document) {
+  const data = document.data();
+
+  return {
+    id: document.id,
+
+    // Support both uppercase and lowercase field names.
+    text:
+      data.Text ??
+      data.text ??
+      data.Question ??
+      data.question ??
+      "",
+
+    question:
+      data.Text ??
+      data.text ??
+      data.Question ??
+      data.question ??
+      "",
+
+    category:
+      data.Category ??
+      data.category ??
+      "General",
+
+    active:
+      data.Active ??
+      data.active ??
+      true,
+
+    createdAt: data.createdAt ?? null
+  };
+}
+
+// CHECK WHETHER A QUESTION IS ACTIVE
+function isQuestionActive(question) {
+  const value = question.active;
+
+  return (
+    value === true ||
+    value === "true" ||
+    value === 1
+  );
+}
+
+// START GAME
 export async function startGame(code) {
   const uid = auth.currentUser.uid;
 
+  // Check that both players have joined.
   const playersSnap = await getDocs(
     collection(db, "rooms", code, "players")
   );
 
   if (playersSnap.size !== 2) {
-    throw new Error("Both players must join before starting.");
-  }
-
-  const roomRef = doc(db, "rooms", code);
-  const roomSnap = await getDoc(roomRef);
-
-  if (roomSnap.data()?.createdBy !== uid) {
-    throw new Error("Only the room creator can start the game.");
-  }
-
-  const qs = await getDocs(
-    query(collection(db, "questions"), limit(500))
-  );
-
-  const questions = qs.docs
-    .map(d => ({ id: d.id, ...d.data() }))
-    .filter(q => q.text || q.question);
-
-  if (!questions.length) {
     throw new Error(
-      "Add questions to the Firestore questions collection first."
+      "Both players must join before starting."
     );
   }
 
+  // Only the room creator can start.
+  const roomRef = doc(db, "rooms", code);
+  const roomSnap = await getDoc(roomRef);
+
+  if (!roomSnap.exists()) {
+    throw new Error("This room no longer exists.");
+  }
+
+  if (roomSnap.data().createdBy !== uid) {
+    throw new Error(
+      "Only the room creator can start the game."
+    );
+  }
+
+  if (roomSnap.data().status !== "waiting") {
+    throw new Error("This game has already started.");
+  }
+
+  // Read questions from Firestore.
+  const questionsSnap = await getDocs(
+    query(
+      collection(db, "questions"),
+      limit(500)
+    )
+  );
+
+  // Recognize Text, text, Question, and question.
+  const allQuestions = questionsSnap.docs
+    .map(normalizeQuestion);
+
+  // Keep active questions with actual question text.
+  const questions = allQuestions.filter(question => {
+    return (
+      isQuestionActive(question) &&
+      question.text.trim().length > 0
+    );
+  });
+
+  if (questions.length === 0) {
+    throw new Error(
+      "No active questions were found. Check the Text and Active fields in your questions collection."
+    );
+  }
+
+  // Randomize the question order.
   questions.sort(() => Math.random() - 0.5);
 
-  const selected = questions.slice(0, Math.min(20, questions.length));
-  const playerIds = playersSnap.docs.map(d => d.id);
+  const selected = questions.slice(
+    0,
+    Math.min(20, questions.length)
+  );
 
-  await setDoc(doc(db, "rooms", code, "gameState", "current"), {
-    status: "playing",
-    questionIds: selected.map(q => q.id),
-    currentQuestionIndex: 0,
-    currentPlayerUid: playerIds[0],
-    playerOrder: playerIds,
-    scores: Object.fromEntries(playerIds.map(id => [id, 0])),
-    answers: {},
-    skipped: [],
-    startedBy: uid,
-    startedAt: serverTimestamp(),
-    turnEndsAt: Date.now() + 30000
-  });
+  const playerIds = playersSnap.docs.map(
+    document => document.id
+  );
+
+  // Save the selected questions and game state.
+  await setDoc(
+    doc(db, "rooms", code, "gameState", "current"),
+    {
+      status: "playing",
+
+      questionIds: selected.map(question => question.id),
+
+      // Include normalized questions for the game interface.
+      questions: selected.map(question => ({
+        id: question.id,
+        text: question.text,
+        question: question.question,
+        category: question.category
+      })),
+
+      currentQuestionIndex: 0,
+      currentPlayerUid: playerIds[0],
+      playerOrder: playerIds,
+
+      scores: Object.fromEntries(
+        playerIds.map(id => [id, 0])
+      ),
+
+      answers: {},
+      skipped: [],
+
+      startedBy: uid,
+      startedAt: serverTimestamp(),
+      turnEndsAt: Date.now() + 30000
+    }
+  );
 
   await updateDoc(roomRef, {
     status: "playing"
   });
-}
+      }
