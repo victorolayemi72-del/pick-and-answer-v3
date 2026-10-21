@@ -1,60 +1,39 @@
 import {
-  auth,
-  db,
-  signInGuest,
-  onAuthStateChanged,
-  collection,
-  doc,
-  getDoc,
-  getDocs,
-  addDoc,
-  updateDoc,
-  setDoc,
-  query,
-  orderBy,
-  limit,
-  onSnapshot,
-  serverTimestamp,
-  saveProfile,
-  loadProfile,
-  createRoom,
-  joinRoom,
-  startGame
+  auth, db, signInGuest, onAuthStateChanged,
+  collection, doc, getDoc, getDocs, addDoc,
+  updateDoc, setDoc, query, orderBy, limit,
+  onSnapshot, serverTimestamp,
+  saveProfile, loadProfile, createRoom, joinRoom, startGame
 } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
 
 const AVATARS = [
-  "🐼", "🐻", "🐱", "🦊", "🐸", "🐨",
-  "🐰", "🐯", "🐶", "🦁", "🐵", "🐧",
-  "🦄", "🐙", "🐹", "🐷", "🐮", "🐣",
-  "🦋", "🐺", "🐻‍❄️", "🐢", "🦉"
+  "🐼","🐻","🐱","🦊","🐸","🐨","🐰","🐯",
+  "🐶","🦁","🐵","🐧","🦄","🐙","🐹","🐷",
+  "🐮","🐣","🦋","🐺","🐻‍❄️","🐢","🦉"
 ];
 
 let uid = null;
-
-let profile = {
-  displayName: "",
-  avatar: "🐼",
-  photoURL: ""
-};
-
+let profile = { displayName:"", avatar:"🐼", photoURL:"" };
 let roomCode = null;
-let roomUnsubs = [];
+let unsubscribers = [];
 let game = null;
 let question = null;
 let chosen = null;
-let tick = null;
+let submitted = false;
+let timer = null;
+let renderedQuestionKey = "";
 let deadline = 0;
 let roomCreator = false;
-let submitted = false;
-let renderedQuestionKey = "";
+let busy = false;
 
 function notice(message, bad = true) {
-  $("notice").textContent = message;
-  $("notice").classList.add("show");
-  $("notice").style.background = bad ? "#fff0d8" : "#e8faef";
-  $("notice").style.color = bad ? "#6d4313" : "#185c36";
+  const box = $("notice");
+  box.textContent = message;
+  box.classList.add("show");
+  box.style.background = bad ? "#fff0d8" : "#e8faef";
+  box.style.color = bad ? "#6d4313" : "#185c36";
 }
 
 function clearNotice() {
@@ -62,34 +41,18 @@ function clearNotice() {
 }
 
 function escapeHTML(value = "") {
-  return String(value).replace(/[&<>"']/g, char => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#39;"
-  })[char]);
+  return String(value).replace(/[&<>"']/g, c => ({
+    "&":"&amp;", "<":"&lt;", ">":"&gt;",
+    '"':"&quot;", "'":"&#39;"
+  })[c]);
 }
 
 function avatarHTML(player, large = false) {
   const cls = large ? "avatar large" : "avatar";
-
   if (player?.photoURL) {
-    return `
-      <div class="${cls}">
-        <img
-          src="${escapeHTML(player.photoURL)}"
-          alt="${escapeHTML(player.displayName || "Player")}"
-        >
-      </div>
-    `;
+    return `<div class="${cls}"><img src="${escapeHTML(player.photoURL)}" alt="Profile picture"></div>`;
   }
-
-  return `
-    <div class="${cls}">
-      ${escapeHTML(player?.avatar || "🐼")}
-    </div>
-  `;
+  return `<div class="${cls}">${escapeHTML(player?.avatar || "🐼")}</div>`;
 }
 
 function renderMyAvatar() {
@@ -98,58 +61,50 @@ function renderMyAvatar() {
     : escapeHTML(profile.avatar || "🐼");
 
   $("pictureStatus").textContent = profile.photoURL
-    ? "Your picture is selected."
-    : "You're using an avatar. You can also select a picture.";
+    ? "Your picture is selected. Save your profile to keep it."
+    : "You're using an avatar. Save your profile to keep it.";
 }
 
 function drawAvatarChoices() {
   $("avatarChoices").innerHTML = AVATARS.map(avatar => `
-    <button
-      type="button"
+    <button type="button"
       class="avatar-choice ${
-        !profile.photoURL && profile.avatar === avatar
-          ? "selected"
-          : ""
+        !profile.photoURL && profile.avatar === avatar ? "selected" : ""
       }"
       data-avatar="${avatar}"
-      aria-label="Choose avatar ${avatar}"
-    >${avatar}</button>
+      aria-label="Choose avatar ${avatar}">${avatar}</button>
   `).join("");
 
-  $("avatarChoices").querySelectorAll("button").forEach(button => {
-    button.onclick = () => {
+  $("avatarChoices").querySelectorAll("[data-avatar]").forEach(button => {
+    button.addEventListener("click", () => {
       profile.avatar = button.dataset.avatar;
       profile.photoURL = "";
       $("profilePicture").value = "";
-
       renderMyAvatar();
       drawAvatarChoices();
-    };
+      notice("Avatar selected. Tap Save profile to save it.", false);
+    });
   });
 }
 
-// PROFILE PICTURE COMPRESSION
-
 async function compressImage(file) {
   if (!file || !file.type.startsWith("image/")) {
-    throw new Error("Please choose an image file.");
+    throw new Error("Please select an image.");
   }
 
   if (file.size > 12 * 1024 * 1024) {
-    throw new Error("Choose a picture under 12 MB.");
+    throw new Error("Choose an image smaller than 12 MB.");
   }
 
-  const imageURL = URL.createObjectURL(file);
+  const objectURL = URL.createObjectURL(file);
 
   try {
     const image = new Image();
 
     await new Promise((resolve, reject) => {
       image.onload = resolve;
-      image.onerror = () => reject(
-        new Error("Could not open that picture.")
-      );
-      image.src = imageURL;
+      image.onerror = () => reject(new Error("Could not open that picture."));
+      image.src = objectURL;
     });
 
     const canvas = document.createElement("canvas");
@@ -157,119 +112,101 @@ async function compressImage(file) {
     canvas.height = 256;
 
     const side = Math.min(image.width, image.height);
-    const sx = (image.width - side) / 2;
-    const sy = (image.height - side) / 2;
-
     canvas.getContext("2d").drawImage(
       image,
-      sx,
-      sy,
-      side,
-      side,
-      0,
-      0,
-      256,
-      256
+      (image.width - side) / 2,
+      (image.height - side) / 2,
+      side, side, 0, 0, 256, 256
     );
 
     let quality = 0.75;
-    let dataURL = canvas.toDataURL("image/jpeg", quality);
+    let result = canvas.toDataURL("image/jpeg", quality);
 
-    while (dataURL.length > 180000 && quality > 0.35) {
+    while (result.length > 180000 && quality > 0.35) {
       quality -= 0.1;
-      dataURL = canvas.toDataURL("image/jpeg", quality);
+      result = canvas.toDataURL("image/jpeg", quality);
     }
 
-    if (dataURL.length > 180000) {
-      throw new Error("Choose another picture; this one is too large.");
+    if (result.length > 180000) {
+      throw new Error("This picture is too large. Please choose another.");
     }
 
-    return dataURL;
+    return result;
   } finally {
-    URL.revokeObjectURL(imageURL);
+    URL.revokeObjectURL(objectURL);
   }
 }
 
 $("profilePicture").addEventListener("change", async event => {
   const file = event.target.files?.[0];
-
   if (!file) return;
 
   try {
-    const compressed = await compressImage(file);
-
-    profile.photoURL = compressed;
-
+    profile.photoURL = await compressImage(file);
     renderMyAvatar();
     drawAvatarChoices();
-
-    notice("Picture selected! Save your profile to keep it.", false);
+    notice("Picture selected. Tap Save profile to save it.", false);
   } catch (error) {
+    event.target.value = "";
     notice(error.message);
   }
 });
 
-$("useAvatar").onclick = () => {
+$("useAvatar").addEventListener("click", () => {
   profile.photoURL = "";
   $("profilePicture").value = "";
-
   renderMyAvatar();
   drawAvatarChoices();
-
-  notice("Avatar selected. Save your profile to keep it.", false);
-};
-
-// SAVE PROFILE
+  notice("Choose an avatar below, then save your profile.", false);
+});
 
 async function saveCurrentProfile() {
-  if (!uid) {
-    throw new Error("Please wait for Firebase to connect.");
-  }
+  if (!uid) throw new Error("Waiting for Firebase sign-in. Try again shortly.");
 
   const name = $("displayName").value.trim();
+  if (name.length < 2) throw new Error("Enter a name with at least 2 characters.");
 
-  if (name.length < 2) {
-    throw new Error("Enter a name with at least 2 characters.");
-  }
-
-  profile.displayName = name;
+  profile.displayName = name.slice(0, 24);
 
   await saveProfile(uid, profile);
 
   if (roomCode) {
-    await setDoc(
-      doc(db, "rooms", roomCode, "players", uid),
-      {
-        uid,
-        displayName: profile.displayName,
-        avatar: profile.avatar || "🐼",
-        photoURL: profile.photoURL || ""
-      },
-      { merge: true }
-    );
+    await setDoc(doc(db, "rooms", roomCode, "players", uid), {
+      uid,
+      displayName: profile.displayName,
+      photoURL: profile.photoURL || "",
+      avatar: profile.avatar || "🐼"
+    }, { merge: true });
   }
 
-  localStorage.setItem(
-    "pickAnswerProfile",
-    JSON.stringify(profile)
-  );
-
+  localStorage.setItem("pickAnswerProfile", JSON.stringify(profile));
   renderMyAvatar();
   drawAvatarChoices();
-
   notice("Profile saved successfully! ❤️", false);
 }
 
-// ROOM CLEANUP
+$("saveProfile").addEventListener("click", async () => {
+  if (busy) return;
+  busy = true;
+  $("saveProfile").disabled = true;
+
+  try {
+    await saveCurrentProfile();
+  } catch (error) {
+    console.error("Profile save failed:", error);
+    notice("Profile couldn't be saved: " + error.message);
+  } finally {
+    busy = false;
+    $("saveProfile").disabled = false;
+  }
+});
 
 function cleanRoom() {
-  roomUnsubs.forEach(unsubscribe => unsubscribe());
-  roomUnsubs = [];
+  unsubscribers.forEach(unsubscribe => unsubscribe());
+  unsubscribers = [];
 
-  if (tick) {
-    clearInterval(tick);
-    tick = null;
-  }
+  if (timer) clearInterval(timer);
+  timer = null;
 
   roomCode = null;
   game = null;
@@ -287,175 +224,46 @@ function cleanRoom() {
   $("lobbyCard").classList.remove("hidden");
 }
 
-// WATCH ROOM
-
 function watchRoom(code) {
   cleanRoom();
-
   roomCode = code;
-
-  $("roomLabel").textContent = `ROOM CODE: ${code}`;
+  $("roomLabel").textContent = "ROOM CODE: " + code;
   $("returnLobby").classList.remove("hidden");
 
   const roomRef = doc(db, "rooms", code);
 
-  roomUnsubs.push(
-    onSnapshot(
-      collection(db, "rooms", code, "players"),
-      async snapshot => {
-        const players = snapshot.docs.map(item => item.data());
+  unsubscribers.push(onSnapshot(
+    collection(db, "rooms", code, "players"),
+    async snapshot => {
+      const players = snapshot.docs.map(d => d.data());
 
-        $("players").innerHTML = players.map(player => `
-          <div class="player">
-            ${avatarHTML(player)}
-            <div>
-              <strong>${escapeHTML(player.displayName || "Player")}</strong>
-              <div class="muted">
-                ${player.uid === uid ? "You" : "Your opponent"}
-              </div>
-            </div>
+      $("players").innerHTML = players.map(player => `
+        <div class="player">
+          ${avatarHTML(player)}
+          <div>
+            <strong>${escapeHTML(player.displayName || "Player")}</strong>
+            <div class="muted">${player.uid === uid ? "You" : "Your opponent"}</div>
           </div>
-        `).join("");
+        </div>
+      `).join("");
 
-        try {
-          const room = await getDoc(roomRef);
+      try {
+        const room = await getDoc(roomRef);
+        roomCreator = room.exists() && room.data().createdBy === uid;
 
-          roomCreator = room.exists() &&
-            room.data().createdBy === uid;
-
-          if (
-            players.length === 2 &&
-            roomCreator &&
-            room.data().status === "waiting"
-          ) {
-            $("startGame").classList.remove("hidden");
-          } else {
-            $("startGame").classList.add("hidden");
-          }
-        } catch (error) {
-          console.error("Room details:", error);
-        }
+        $("startGame").classList.toggle(
+          "hidden",
+          !(players.length === 2 && roomCreator && room.data().status === "waiting")
+        );
+      } catch (error) {
+        console.error(error);
       }
-    )
-  );
+    },
+    error => notice("Player list failed: " + error.message)
+  ));
 
-  roomUnsubs.push(
-    onSnapshot(
-      doc(db, "rooms", code, "gameState", "current"),
-      snapshot => {
-        if (snapshot.exists()) {
-          game = snapshot.data();
-
-          $("lobbyCard").classList.add("hidden");
-          $("gameCard").classList.remove("hidden");
-          $("chatCard").classList.remove("hidden");
-
-          renderGame();
-        } else {
-          $("lobbyCard").classList.remove("hidden");
-        }
-      },
-      error => {
-        notice("Game connection failed: " + error.message);
-      }
-    )
-  );
-
-  roomUnsubs.push(
-    onSnapshot(
-      query(
-        collection(db, "rooms", code, "messages"),
-        orderBy("createdAt", "asc"),
-        limit(100)
-      ),
-      snapshot => {
-        $("chatMessages").innerHTML = snapshot.docs.map(item => {
-          const message = item.data();
-
-          return `
-            <div class="message ${
-              message.uid === uid ? "mine" : ""
-            }">
-              <strong>${escapeHTML(message.displayName || "Player")}</strong>
-              <div>${escapeHTML(message.text || "")}</div>
-            </div>
-          `;
-        }).join("");
-
-        $("chatMessages").scrollTop =
-          $("chatMessages").scrollHeight;
-      },
-      error => {
-        console.error("Chat:", error);
-      }
-    )
-  );
-}
-
-// READ FIRESTORE QUESTIONS
-// Supports Text, text, Question, question, and questionText.
-
-async function getCurrentQuestion() {
-  if (Array.isArray(game?.questions)) {
-    const savedQuestion =
-      game.questions[game.currentQuestionIndex];
-
-    if (savedQuestion) {
-      return normalizeQuestion(savedQuestion);
-    }
-  }
-
-  if (!game?.questionIds?.length) {
-    return null;
-  }
-
-  const questionId =
-    game.questionIds[game.currentQuestionIndex];
-
-  if (!questionId) return null;
-
-  const snapshot = await getDoc(
-    doc(db, "questions", questionId)
-  );
-
-  if (!snapshot.exists()) return null;
-
-  return normalizeQuestion({
-    id: questionId,
-    ...snapshot.data()
-  });
-}
-
-function normalizeQuestion(raw) {
-  return {
-    id: raw.id || "",
-    text:
-      raw.Text ??
-      raw.text ??
-      raw.Question ??
-      raw.question ??
-      raw.questionText ??
-      "Question text is missing.",
-    category:
-      raw.Category ??
-      raw.category ??
-      "General",
-    options: Array.isArray(raw.options)
-      ? raw.options
-      : Array.isArray(raw.choices)
-        ? raw.choices
-        : [],
-    answer: raw.answer ?? raw.correctAnswer ?? null
-  };
-}
-
-// DISPLAY GAME
-
-async function renderGame() {
-  if (!game) return;
-
-  const index = Number(game.currentQuestionIndex || 0);
-  const total = game.questionIds?.length ||
+  unsubscribers.push(onSnapshot(
+    doc(db, "rooms", code, "gameStatetionIds?.length ||
     game.questions?.length || 0;
 
   renderScores();
