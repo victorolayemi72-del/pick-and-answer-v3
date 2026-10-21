@@ -1,34 +1,39 @@
 import {
   auth, db, signInGuest, onAuthStateChanged,
   collection, doc, getDoc, getDocs, addDoc,
-  updateDoc, setDoc, query, orderBy, limit,
-  onSnapshot, serverTimestamp,
-  saveProfile, loadProfile, createRoom, joinRoom, startGame
+  updateDoc, setDoc, query, limit, onSnapshot,
+  serverTimestamp, saveProfile, loadProfile,
+  createRoom, joinRoom, startGame
 } from "./firebase.js";
 
 const $ = id => document.getElementById(id);
 
 const AVATARS = [
-  "🐼","🐻","🐱","🦊","🐸","🐨","🐰","🐯",
-  "🐶","🦁","🐵","🐧","🦄","🐙","🐹","🐷",
-  "🐮","🐣","🦋","🐺","🐻‍❄️","🐢","🦉"
+  "🐼", "🐻", "🐱", "🦊", "🐸", "🐨", "🐰", "🐯",
+  "🐶", "🦁", "🐵", "🐧", "🦄", "🐙", "🐹", "🐷",
+  "🐮", "🐣", "🦋", "🐺", "🐻‍❄️", "🐢", "🦉"
 ];
 
 let uid = null;
-let profile = { displayName:"", avatar:"🐼", photoURL:"" };
+let profile = { displayName: "", avatar: "🐼", photoURL: "" };
 let roomCode = null;
-let unsubscribers = [];
+let roomCreator = false;
 let game = null;
 let question = null;
 let chosen = null;
 let submitted = false;
-let timer = null;
-let renderedQuestionKey = "";
-let deadline = 0;
-let roomCreator = false;
 let busy = false;
+let deadline = 0;
+let timer = null;
+let questionKey = "";
+let unsubscribers = [];
+let messagesUnsubscribe = null;
+let playersUnsubscribe = null;
+let gameUnsubscribe = null;
+let roomUnsubscribe = null;
+let advancing = false;
 
-function notice(message, bad = true) {
+function showNotice(message, bad = true) {
   const box = $("notice");
   box.textContent = message;
   box.classList.add("show");
@@ -41,38 +46,58 @@ function clearNotice() {
 }
 
 function escapeHTML(value = "") {
-  return String(value).replace(/[&<>"']/g, c => ({
-    "&":"&amp;", "<":"&lt;", ">":"&gt;",
-    '"':"&quot;", "'":"&#39;"
-  })[c]);
+  return String(value).replace(/[&<>"']/g, character => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#39;"
+  })[character]);
 }
 
 function avatarHTML(player, large = false) {
-  const cls = large ? "avatar large" : "avatar";
+  const className = large ? "avatar large" : "avatar";
+
   if (player?.photoURL) {
-    return `<div class="${cls}"><img src="${escapeHTML(player.photoURL)}" alt="Profile picture"></div>`;
+    return `
+      <div class="${className}">
+        <img src="${escapeHTML(player.photoURL)}" alt="Profile picture">
+      </div>`;
   }
-  return `<div class="${cls}">${escapeHTML(player?.avatar || "🐼")}</div>`;
+
+  return `
+    <div class="${className}">
+      ${escapeHTML(player?.avatar || "🐼")}
+    </div>`;
 }
 
 function renderMyAvatar() {
-  $("myAvatar").innerHTML = profile.photoURL
-    ? `<img src="${escapeHTML(profile.photoURL)}" alt="Your profile picture">`
-    : escapeHTML(profile.avatar || "🐼");
+  const container = $("myAvatar");
+
+  if (profile.photoURL) {
+    container.innerHTML = `
+      <img src="${escapeHTML(profile.photoURL)}"
+           alt="Your profile picture">`;
+  } else {
+    container.textContent = profile.avatar || "🐼";
+  }
 
   $("pictureStatus").textContent = profile.photoURL
-    ? "Your picture is selected. Save your profile to keep it."
-    : "You're using an avatar. Save your profile to keep it.";
+    ? "Picture selected. Save your profile to keep it."
+    : `Using avatar ${profile.avatar || "🐼"}. Save your profile to keep it.`;
 }
 
 function drawAvatarChoices() {
   $("avatarChoices").innerHTML = AVATARS.map(avatar => `
-    <button type="button"
+    <button
+      type="button"
       class="avatar-choice ${
         !profile.photoURL && profile.avatar === avatar ? "selected" : ""
       }"
       data-avatar="${avatar}"
-      aria-label="Choose avatar ${avatar}">${avatar}</button>
+      aria-label="Choose avatar ${avatar}">
+      ${avatar}
+    </button>
   `).join("");
 
   $("avatarChoices").querySelectorAll("[data-avatar]").forEach(button => {
@@ -80,20 +105,22 @@ function drawAvatarChoices() {
       profile.avatar = button.dataset.avatar;
       profile.photoURL = "";
       $("profilePicture").value = "";
+
       renderMyAvatar();
       drawAvatarChoices();
-      notice("Avatar selected. Tap Save profile to save it.", false);
+
+      showNotice("Avatar selected! Tap Save profile.", false);
     });
   });
 }
 
 async function compressImage(file) {
   if (!file || !file.type.startsWith("image/")) {
-    throw new Error("Please select an image.");
+    throw new Error("Please choose an image file.");
   }
 
   if (file.size > 12 * 1024 * 1024) {
-    throw new Error("Choose an image smaller than 12 MB.");
+    throw new Error("Choose a picture smaller than 12 MB.");
   }
 
   const objectURL = URL.createObjectURL(file);
@@ -103,7 +130,7 @@ async function compressImage(file) {
 
     await new Promise((resolve, reject) => {
       image.onload = resolve;
-      image.onerror = () => reject(new Error("Could not open that picture."));
+      image.onerror = () => reject(new Error("Could not open this picture."));
       image.src = objectURL;
     });
 
@@ -111,12 +138,24 @@ async function compressImage(file) {
     canvas.width = 256;
     canvas.height = 256;
 
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      throw new Error("Your browser could not process this picture.");
+    }
+
     const side = Math.min(image.width, image.height);
-    canvas.getContext("2d").drawImage(
+
+    context.drawImage(
       image,
       (image.width - side) / 2,
       (image.height - side) / 2,
-      side, side, 0, 0, 256, 256
+      side,
+      side,
+      0,
+      0,
+      256,
+      256
     );
 
     let quality = 0.75;
@@ -128,7 +167,7 @@ async function compressImage(file) {
     }
 
     if (result.length > 180000) {
-      throw new Error("This picture is too large. Please choose another.");
+      throw new Error("Picture is too large. Choose another one.");
     }
 
     return result;
@@ -137,34 +176,48 @@ async function compressImage(file) {
   }
 }
 
+// Picture upload
 $("profilePicture").addEventListener("change", async event => {
   const file = event.target.files?.[0];
   if (!file) return;
 
   try {
+    showNotice("Processing your picture…", false);
+
     profile.photoURL = await compressImage(file);
+
     renderMyAvatar();
     drawAvatarChoices();
-    notice("Picture selected. Tap Save profile to save it.", false);
+
+    showNotice("Picture selected! Tap Save profile.", false);
   } catch (error) {
     event.target.value = "";
-    notice(error.message);
+    showNotice(error.message || "Could not process the picture.");
   }
 });
 
+// Use an avatar
 $("useAvatar").addEventListener("click", () => {
   profile.photoURL = "";
   $("profilePicture").value = "";
+
   renderMyAvatar();
   drawAvatarChoices();
-  notice("Choose an avatar below, then save your profile.", false);
+
+  showNotice("Choose an avatar below, then save your profile.", false);
 });
 
+// Save profile
 async function saveCurrentProfile() {
-  if (!uid) throw new Error("Waiting for Firebase sign-in. Try again shortly.");
+  if (!uid) {
+    throw new Error("Waiting for Firebase sign-in. Try again shortly.");
+  }
 
   const name = $("displayName").value.trim();
-  if (name.length < 2) throw new Error("Enter a name with at least 2 characters.");
+
+  if (name.length < 2) {
+    throw new Error("Enter a name with at least 2 characters.");
+  }
 
   profile.displayName = name.slice(0, 24);
 
@@ -174,49 +227,70 @@ async function saveCurrentProfile() {
     await setDoc(doc(db, "rooms", roomCode, "players", uid), {
       uid,
       displayName: profile.displayName,
-      photoURL: profile.photoURL || "",
-      avatar: profile.avatar || "🐼"
+      avatar: profile.avatar,
+      photoURL: profile.photoURL || ""
     }, { merge: true });
   }
 
   localStorage.setItem("pickAnswerProfile", JSON.stringify(profile));
+
   renderMyAvatar();
   drawAvatarChoices();
-  notice("Profile saved successfully! ❤️", false);
+
+  showNotice("Profile saved successfully! ❤️", false);
 }
 
 $("saveProfile").addEventListener("click", async () => {
   if (busy) return;
+
   busy = true;
   $("saveProfile").disabled = true;
 
   try {
     await saveCurrentProfile();
   } catch (error) {
-    console.error("Profile save failed:", error);
-    notice("Profile couldn't be saved: " + error.message);
+    console.error(error);
+    showNotice("Profile could not be saved: " + error.message);
   } finally {
     busy = false;
     $("saveProfile").disabled = false;
   }
 });
 
-function cleanRoom() {
-  unsubscribers.forEach(unsubscribe => unsubscribe());
+// Clean up subscriptions when leaving a room.
+function stopRoomListeners() {
+  unsubscribers.forEach(unsubscribe => {
+    try {
+      unsubscribe();
+    } catch {}
+  });
+
   unsubscribers = [];
+  playersUnsubscribe = null;
+  gameUnsubscribe = null;
+  roomUnsubscribe = null;
+  messagesUnsubscribe = null;
 
   if (timer) clearInterval(timer);
   timer = null;
+}
+
+function cleanRoom() {
+  stopRoomListeners();
 
   roomCode = null;
+  roomCreator = false;
   game = null;
   question = null;
   chosen = null;
   submitted = false;
-  renderedQuestionKey = "";
+  advancing = false;
+  questionKey = "";
 
   $("roomLabel").textContent = "";
   $("players").innerHTML = "";
+  $("chatMessages").innerHTML = "";
+
   $("gameCard").classList.add("hidden");
   $("chatCard").classList.add("hidden");
   $("startGame").classList.add("hidden");
@@ -226,16 +300,21 @@ function cleanRoom() {
 
 function watchRoom(code) {
   cleanRoom();
+
   roomCode = code;
+
+  $("roomCode").value = code;
   $("roomLabel").textContent = "ROOM CODE: " + code;
   $("returnLobby").classList.remove("hidden");
 
+  $("lobbyCard").classList.remove("hidden");
+
   const roomRef = doc(db, "rooms", code);
 
-  unsubscribers.push(onSnapshot(
+  playersUnsubscribe = onSnapshot(
     collection(db, "rooms", code, "players"),
-    async snapshot => {
-      const players = snapshot.docs.map(d => d.data());
+    snapshot => {
+      const players = snapshot.docs.map(item => item.data());
 
       $("players").innerHTML = players.map(player => `
         <div class="player">
@@ -247,29 +326,185 @@ function watchRoom(code) {
         </div>
       `).join("");
 
-      try {
-        const room = await getDoc(roomRef);
-        roomCreator = room.exists() && room.data().createdBy === uid;
+      refreshRoomControls();
+    },
+    error => showNotice("Player list error: " + error.message)
+  );
 
-        $("startGame").classList.toggle(
-          "hidden",
-          !(players.length === 2 && roomCreator && room.data().status === "waiting")
-        );
-      } catch (error) {
-        console.error(error);
+  unsubscribers.push(playersUnsubscribe);
+
+  roomUnsubscribe = onSnapshot(
+    roomRef,
+    snapshot => {
+      if (!snapshot.exists()) {
+        showNotice("This room no longer exists.");
+        return;
+      }
+
+      const room = snapshot.data();
+      roomCreator = room.createdBy === uid;
+
+      $("startGame").classList.toggle(
+        "hidden",
+        !(roomCreator && room.status === "waiting")
+      );
+
+      if (room.status === "playing" || room.status === "finished") {
+        $("gameCard").classList.remove("hidden");
+        $("chatCard").classList.remove("hidden");
       }
     },
-    error => notice("Player list failed: " + error.message)
-  ));
+    error => showNotice("Room update error: " + error.message)
+  );
 
-  unsubscribers.push(onSnapshot(
-    doc(db, "rooms", code, "gameStatetionIds?.length ||
-    game.questions?.length || 0;
+  unsubscribers.push(roomUnsubscribe);
+
+  gameUnsubscribe = onSnapshot(
+    doc(db, "rooms", code, "gameState", "current"),
+    snapshot => {
+      if (!snapshot.exists()) {
+        game = null;
+        return;
+      }
+
+      game = snapshot.data();
+
+      $("gameCard").classList.remove("hidden");
+      $("chatCard").classList.remove("hidden");
+
+      renderGame().catch(error => {
+        console.error("Game rendering error:", error);
+        showNotice("Game display error: " + error.message);
+      });
+    },
+    error => showNotice("Game state error: " + error.message)
+  );
+
+  unsubscribers.push(gameUnsubscribe);
+
+  messagesUnsubscribe = onSnapshot(
+    query(
+      collection(db, "rooms", code, "messages"),
+      orderBy("createdAt", "asc"),
+      limit(100)
+    ),
+    snapshot => {
+      $("chatMessages").innerHTML = snapshot.docs.map(item => {
+        const message = item.data();
+        const mine = message.uid === uid;
+
+        return `
+          <div class="message ${mine ? "mine" : ""}">
+            <strong>${escapeHTML(message.displayName || "Player")}</strong>
+            <div>${escapeHTML(message.text || "")}</div>
+          </div>`;
+      }).join("");
+
+      $("chatMessages").scrollTop = $("chatMessages").scrollHeight;
+    },
+    error => showNotice("Chat error: " + error.message)
+  );
+
+  unsubscribers.push(messagesUnsubscribe);
+
+  refreshRoomControls();
+}
+
+async function refreshRoomControls() {
+  if (!roomCode) return;
+
+  try {
+    const room = await getDoc(doc(db, "rooms", roomCode));
+
+    if (!room.exists()) return;
+
+    const players = await getDocs(
+      collection(db, "rooms", roomCode, "players")
+    );
+
+    $("startGame").classList.toggle(
+      "hidden",
+      !(room.data().createdBy === uid &&
+        room.data().status === "waiting" &&
+        players.size === 2)
+    );
+  } catch (error) {
+    console.error("Could not refresh room controls:", error);
+  }
+}
+
+async function getCurrentQuestion() {
+  if (!game) return null;
+
+  const index = Number(game.currentQuestionIndex || 0);
+  const embedded = game.questions?.[index];
+
+  if (embedded?.text || embedded?.Text) {
+    return normalizeQuestion(embedded);
+  }
+
+  const id = game.questionIds?.[index];
+  if (!id) return null;
+
+  const snapshot = await getDoc(doc(db, "questions", id));
+
+  if (!snapshot.exists()) return null;
+
+  return normalizeQuestion({
+    ...snapshot.data(),
+    id: snapshot.id
+  });
+}
+
+function normalizeQuestion(data = {}) {
+  const text = data.text ?? data.Text ?? data.question ?? data.Question ?? "";
+  const rawOptions = data.options ?? data.Options ?? data.choices ?? [];
+
+  let options = rawOptions;
+
+  if (typeof options === "string") {
+    try {
+      options = JSON.parse(options);
+    } catch {
+      options = options.split("|").map(item => item.trim());
+    }
+  }
+
+  if (!Array.isArray(options)) {
+    options = Object.values(options || {});
+  }
+
+  return {
+    id: data.id || "",
+    text: String(text),
+    category: String(data.category ?? data.Category ?? "General"),
+    options,
+    answer: data.answer ?? data.Answer ?? data.correctAnswer
+  };
+}
+
+function renderScores() {
+  const players = game?.playerOrder || [];
+
+  $("scores").innerHTML = players.map(id => `
+    <div class="score">
+      ${id === uid ? "You" : "Opponent"}:
+      <strong>${Number(game?.scores?.[id] || 0)}</strong>
+    </div>
+  `).join("");
+}
+
+async function renderGame() {
+  if (!game) return;
+
+  const index = Number(game.currentQuestionIndex || 0);
+  const total = game.questionIds?.length || game.questions?.length || 0;
 
   renderScores();
 
   if (game.status === "finished" || index >= total) {
-    if (tick) clearInterval(tick);
+    if (timer) clearInterval(timer);
+    timer = null;
 
     $("questionText").textContent = "Game complete! ❤️";
     $("category").textContent = "Final results";
@@ -279,33 +514,28 @@ function watchRoom(code) {
     $("nextQuestion").classList.add("hidden");
     $("progress").textContent = "Finished";
     $("timer").textContent = "—";
+    $("answerFeedback").textContent = "Thanks for playing!";
 
-    renderScores();
     return;
   }
 
-  $("progress").textContent =
-    `Question ${index + 1} of ${total}`;
+  $("progress").textContent = `Question ${index + 1} of ${total}`;
 
   if (game.status !== "playing") return;
 
   const key = `${index}:${game.questionIds?.[index] || ""}`;
 
-  if (renderedQuestionKey !== key) {
-    renderedQuestionKey = key;
+  if (questionKey !== key) {
+    questionKey = key;
     question = await getCurrentQuestion();
 
     chosen = null;
     submitted = false;
 
     $("answerFeedback").textContent = "";
-    $("submitAnswer").classList.remove("hidden");
-    $("skipQuestion").classList.remove("hidden");
-    $("nextQuestion").classList.add("hidden");
 
     if (!question) {
-      $("questionText").textContent =
-        "Unable to load this question. Please check Firestore.";
+      $("questionText").textContent = "Question not found.";
       $("category").textContent = "Question error";
       $("options").innerHTML = "";
       return;
@@ -314,48 +544,254 @@ function watchRoom(code) {
     $("questionText").textContent = question.text;
     $("category").textContent = question.category;
 
-    if (question.options.length > 0) {
-      $("options").innerHTML = question.options.map((option, i) => {
+    if (question.options.length) {
+      $("options").innerHTML = question.options.map((option, index) => {
         const label = typeof option === "object"
-          ? option.text || option.label || ""
+          ? option.text ?? option.label ?? String(option.value ?? "")
           : String(option);
 
         return `
-          <button class="option" data-index="${i}">
+          <button type="button" class="option" data-index="${index}">
             ${escapeHTML(label)}
-          </button>
-        `;
+          </button>`;
       }).join("");
 
-      $("options").querySelectorAll("button").forEach(button => {
-        button.onclick = () => {
-          if (submitted || game.currentPlayerUid !== uid) return;
+      $("options").querySelectorAll("[data-index]").forEach(button => {
+        button.addEventListener("click", () => {
+          if (submitted || game?.currentPlayerUid !== uid) return;
 
           chosen = Number(button.dataset.index);
 
-          $("options").querySelectorAll("button").forEach(item => {
-            item.classList.toggle("selected", item === button);
+          $("options").querySelectorAll(".option").forEach(option => {
+            option.classList.toggle("selected", option === button);
           });
-        };
+        });
       });
     } else {
-      // Existing questions are open-ended.
       $("options").innerHTML = `
         <p class="muted">
-          Take turns answering this question aloud or in the chat.
-          Tap "I've Answered" when you're ready to continue.
-        </p>
-      `;
+          Take turns answering aloud or in the chat, then tap "I've Answered".
+        </p>`;
     }
   }
 
   const isTurn = game.currentPlayerUid === uid;
+
+  $("submitAnswer").classList.remove("hidden");
+  $("skipQuestion").classList.remove("hidden");
+  $("nextQuestion").classList.add("hidden");
 
   $("submitAnswer").textContent = question?.options?.length
     ? "Submit answer"
     : "I've Answered";
 
   $("submitAnswer").disabled = !isTurn || submitted;
+  $("skipQuestion").disabled = !isTurn || submitted;
+
+  $("answerFeedback").textContent = submitted
+    ? "Answer submitted."
+    : isTurn
+      ? "Your turn — choose an answer."
+      : "Waiting for your opponent to answer…";
+
+  startTimer();
+}
+
+function startTimer() {
+  if (timer) clearInterval(timer);
+
+  deadline = Number(game?.turnEndsAt) || Date.now() + 30000;
+
+  const updateTimer = async () => {
+    const remaining = Math.max(
+      0,
+      Math.ceil((deadline - Date.now()) / 1000)
+    );
+
+    $("timer").textContent = remaining;
+    $("timerBar").style.width = `${remaining / 30 * 100}%`;
+
+    if (remaining <= 0) {
+      clearInterval(timer);
+      timer = null;
+
+      if (game?.currentPlayerUid === uid && !submitted && !advancing) {
+        try {
+          await advanceTurn(true, false);
+        } catch (error) {
+          showNotice("Could not advance the turn: " + error.message);
+        }
+      }
+    }
+  };
+
+  updateTimer();
+  timer = setInterval(updateTimer, 250);
+}
+
+function answersMatch(answer, selected, option) {
+  if (answer === undefined || answer === null) return false;
+
+  const answerString = String(answer).trim().toLowerCase();
+
+  const optionLabel = typeof option === "object"
+    ? String(option.text ?? option.label ?? option.value ?? "")
+    : String(option);
+
+  return answerString === String(selected).toLowerCase() ||
+    answerString === String(optionLabel).trim().toLowerCase();
+}
+
+async function advanceTurn(skipped = false, correct = false) {
+  if (!game || game.currentPlayerUid !== uid || advancing || !roomCode) return;
+
+  advancing = true;
+
+  try {
+    const players = game.playerOrder || [];
+
+    if (players.length !== 2) {
+      throw new Error("The room must have two players.");
+    }
+
+    const nextIndex = Number(game.currentQuestionIndex || 0) + 1;
+    const currentPlayerIndex = players.indexOf(uid);
+    const nextUid = players[(Math.max(0, currentPlayerIndex) + 1) % players.length];
+    const scores = { ...(game.scores || {}) };
+
+    if (correct) {
+      scores[uid] = Number(scores[uid] || 0) + 1;
+    }
+
+    const total = game.questionIds?.length || game.questions?.length || 0;
+
+    await updateDoc(
+      doc(db, "rooms", roomCode, "gameState", "current"),
+      {
+        currentQuestionIndex: nextIndex,
+        currentPlayerUid: nextUid,
+        scores,
+        status: nextIndex >= total ? "finished" : "playing",
+        turnEndsAt: Date.now() + 30000,
+        lastAction: skipped ? "skipped" : "answered",
+        lastActionBy: uid
+      }
+    );
+
+    chosen = null;
+    submitted = false;
+    question = null;
+    questionKey = "";
+  } finally {
+    advancing = false;
+  }
+}
+
+// Create room
+$("createRoom").addEventListener("click", async () => {
+  try {
+    clearNotice();
+
+    if (!profile.displayName) await saveCurrentProfile();
+
+    const code = await createRoom(profile);
+    watchRoom(code);
+
+    showNotice("Room created! Share the code with your opponent.", false);
+  } catch (error) {
+    console.error(error);
+    showNotice(error.message || "Could not create room.");
+  }
+});
+
+// Join room
+$("joinRoom").addEventListener("click", async () => {
+  try {
+    clearNotice();
+
+    if (!profile.displayName) await saveCurrentProfile();
+
+    const code = await joinRoom($("roomCode").value, profile);
+    watchRoom(code);
+
+    showNotice("Joined room successfully!", false);
+  } catch (error) {
+    console.error(error);
+    showNotice(error.message || "Could not join room.");
+  }
+});
+
+// Start game
+$("startGame").addEventListener("click", async () => {
+  try {
+    $("startGame").disabled = true;
+
+    await startGame(roomCode);
+
+    showNotice("Game started! ❤️‍🔥", false);
+  } catch (error) {
+    console.error(error);
+    showNotice("Could not start game: " + error.message);
+  } finally {
+    $("startGame").disabled = false;
+  }
+});
+
+// Submit answer
+$("submitAnswer").addEventListener("click", async () => {
+  if (!game || game.currentPlayerUid !== uid || submitted) return;
+
+  if (question?.options?.length && chosen === null) {
+    showNotice("Choose an answer first.");
+    return;
+  }
+
+  submitted = true;
+  $("submitAnswer").disabled = true;
+  $("skipQuestion").disabled = true;
+
+  const option = question?.options?.[chosen];
+  const correct = question?.options?.length
+    ? answersMatch(question.answer, chosen, option)
+    : false;
+
+  $("answerFeedback").textContent = correct
+    ? "Correct! +1 point"
+    : "Answer submitted.";
+
+  try {
+    await advanceTurn(false, correct);
+  } catch (error) {
+    submitted = false;
+    showNotice("Could not submit answer: " + error.message);
+  }
+});
+
+// Skip question
+$("skipQuestion").addEventListener("click", async () => {
+  if (!game || game.currentPlayerUid !== uid || submitted) return;
+
+  submitted = true;
+
+  try {
+    await advanceTurn(true, false);
+  } catch (error) {
+    submitted = false;
+    showNotice("Could not skip: " + error.message);
+  }
+});
+
+// Return to lobby
+$("returnLobby").addEventListener("click", () => {
+  cleanRoom();
+  showNotice("You left the room view. Your room remains in Firebase.", false);
+});
+
+// Chat
+$("chatForm").addEventListener("submit", async event => {
+  event.preventDefault();
+
+  const messageText = $("chTurn || submitted;
   $("skipQuestion").disabled = !isTurn || submitted;
 
   $("answerFeedback").textContent = isTurn
