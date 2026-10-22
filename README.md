@@ -1,2 +1,3 @@
-# pick-and-answer-v3
-Pick &amp; Answer — Online two-player question game
+# Pick & Answer v3
+
+Updated two-player question-picking game. See `README-SETUP.txt` for installation, bulk question format, Firebase rules, and notification limitations.

@@ -1,51 +1,63 @@
-PICK & ANSWER — COMPLETE REPLACEMENT FILES
-==========================================
+PICK & ANSWER v3 — UPDATED REPLACEMENT PACKAGE
+================================================
+
+WHAT CHANGED
+------------
+- Bulk question upload in the room creator's panel.
+- Questions are numbered automatically.
+- Players pick a question number FOR the other player.
+- A picked number is reserved atomically in Firestore and cannot be picked again.
+- No answer submission form, answer history, score, or leaderboard.
+- Room chat, profiles, avatars, room creation/joining, and the existing admin files remain.
+- Browser notification permission for new room messages when the page is running.
 
 FILES
 -----
-index.html       Main game
-styles.css       Main design
-firebase.js      Firebase connection and shared functions
-app.js           Profiles, photo/avatar picker, rooms, turns, timer, scores, chat
-admin.html       Admin panel
-admin.css        Admin panel styling
-admin.js         Admin Google sign-in and question manager
-firestore.rules  Firestore access rules
+index.html, app.js, firebase.js, styles.css, firestore.rules, README-SETUP.txt
+admin.html, admin.js, admin.css are included unchanged from your uploaded ZIP.
 
 INSTALL
 -------
-1. Replace the existing files in the root of your GitHub repository with these files.
-   Important: the main HTML references styles.css (plural), not style.css.
-2. In Firebase Console > Authentication > Sign-in method, enable:
-   - Anonymous (for game players)
-   - Google (for the admin panel)
-3. In Firebase Console > Authentication > Settings > Authorized domains, make sure
-   victorolayemi72-del.github.io is listed.
-4. Open Firebase Console > Firestore Database > Rules.
-5. Copy firestore.rules into the Rules editor.
-6. Before publishing the rules, replace:
-   REPLACE_WITH_YOUR_GOOGLE_EMAIL
-   with the exact Google email you will use for admin access. Keep the quotation marks.
-7. Publish the rules.
-8. In Firebase Console > Project settings > General, the web app config should match
-   the project in firebase.js (pick-and-answer-v3).
-9. Commit/push the replacement files and wait for GitHub Pages to deploy.
-10. Open the main game, refresh, save a profile, create a room. A second player must
-    open the same site on another browser/device and join with the room code.
-11. Open admin.html and sign in using the Google email entered in firestore.rules.
-    Add questions with at least two options. The answer selected in the dropdown must
-    correspond to an option that is filled in.
+1. Back up your GitHub repository first.
+2. Upload/replace the files from this ZIP in the ROOT of the repository. Keep the three
+   admin files unchanged; this ZIP includes the original copies.
+3. Firebase Console > Firestore Database > Rules: paste the full contents of firestore.rules
+   and publish. The admin email in these rules is victorolayemi72@gmail.com. If you use a
+   different verified Google email for admin, change that email before publishing.
+4. Firebase Console > Authentication > Sign-in method: enable Anonymous for players and
+   Google for admin. Ensure your GitHub Pages domain is an authorized domain.
+5. Commit the changes and wait for GitHub Pages to deploy. Open the game in two browsers or
+   on two devices, save each profile, create a room, and join with the six-character code.
 
-IMPORTANT LIMITS / NOTES
-------------------------
-- The Google email used by the admin page is not automatically the Firebase Console
-  account unless it is the same Google account. Enter the exact email in the rules.
-- The browser app does not have access to your Firebase Console credentials.
-- Photos are resized in the browser and stored as compressed data URLs in Firestore;
-  this avoids Firebase Storage setup, but many large photos can increase Firestore use.
-- This is a starter two-player game. Do not use it for sensitive/private information.
-- For strongest production security, game-state turn changes should be validated by a
-  trusted server/Cloud Function. These client rules prioritize getting the prototype
-  running and should be hardened before public launch.
-- If you see "Missing or insufficient permissions", check the published Firestore rules,
-  that Anonymous sign-in is enabled, and that the admin email placeholder was replaced.
+BULK QUESTION FORMAT
+--------------------
+- Paste one question per line, OR separate multi-line questions with a blank line.
+- Optional leading numbering like "1. ", "2) ", or bullets are stripped automatically.
+- Choose one category for each upload.
+- Up to 400 questions per upload; each question must be 1,000 characters or fewer.
+- Additional uploads continue numbering after the highest existing question number.
+
+HOW THE GAME WORKS
+------------------
+- Creator uploads questions, then presses Start game after the second player joins.
+- The player whose turn it is chooses an available number for their opponent.
+- The selected number disappears from the available-number grid for both players.
+- The picked question appears with the name of the picker and recipient. Players can discuss
+  their answers in room chat; the game does not collect answers or keep scores.
+
+NOTIFICATIONS LIMIT
+-------------------
+The button requests browser notification permission for new chat messages while the page is
+open or running in a supported background tab. This is NOT full push notification support
+when the site is fully closed. True closed-app push requires a service worker, Firebase Cloud
+Messaging configuration, and a trusted sender such as a Firebase Cloud Function; that has not
+been deployed or tested in this package.
+
+TESTING / SAFETY NOTES
+---------------------
+JavaScript syntax and HTML parsing checks passed locally. Live Firebase sign-in, deployed
+Firestore rules, two-device gameplay, and browser notification delivery have not been tested
+against your actual Firebase project from this environment. If you see "Missing or insufficient
+permissions", confirm the rules were published and Anonymous sign-in is enabled.
+This is a browser prototype; do not use it for sensitive information. Firestore usage may incur
+costs as usage grows.
