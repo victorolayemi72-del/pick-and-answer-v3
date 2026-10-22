@@ -1,80 +1,24 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#fce7f3">
-  <title>Pick & Answer — The Chemistry Test</title>
-  <link rel="stylesheet" href="styles.css">
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#fce7f3"><title>Pick & Answer — The Chemistry Test</title>
+<link rel="stylesheet" href="styles.css">
 </head>
-<body>
-<main class="app">
-  <header class="site-header">
-    <div class="logo">💞</div>
-    <div><h1>Pick &amp; Answer</h1><p class="muted">The Chemistry Test · Private 2-player rooms</p></div>
-    <a class="admin-link" href="admin.html">Admin</a>
-  </header>
-  <div id="notice" class="notice" role="status" aria-live="polite"></div>
-
-  <section class="card" id="profileCard">
-    <h2>Your profile</h2>
-    <div class="profile-edit">
-      <div id="myAvatar" class="avatar large">🐼</div>
-      <div class="profile-fields">
-        <label for="displayName">Display name</label>
-        <input id="displayName" maxlength="24" placeholder="Enter your name" autocomplete="nickname">
-        <p class="muted">Choose a picture or built-in avatar. Your opponent can see your profile.</p>
-      </div>
-    </div>
-    <div class="picture-actions">
-      <label class="upload-button" for="profilePicture">📸 Choose your picture</label>
-      <input type="file" id="profilePicture" accept="image/*" hidden>
-      <button type="button" id="useAvatar" class="secondary">🐼 Use an avatar instead</button>
-    </div>
-    <p id="pictureStatus" class="muted">You can select a picture from your phone's gallery.</p>
-    <h3>Or choose an avatar</h3>
-    <div id="avatarChoices" class="avatar-choices"></div>
-    <button id="saveProfile" class="primary">Save profile</button>
-  </section>
-
-  <section class="card" id="lobbyCard">
-    <h2>Private lobby</h2>
-    <div class="two-col">
-      <button id="createRoom" class="primary">Create a room</button>
-      <div>
-        <label for="roomCode">Room code</label>
-        <input id="roomCode" maxlength="6" placeholder="ABC123" autocapitalize="characters">
-        <button id="joinRoom" class="secondary">Join room</button>
-      </div>
-    </div>
-    <p id="roomLabel" class="room-label"></p>
-    <div id="players" class="players"></div>
-    <button id="startGame" class="primary hidden">Start game</button>
-    <button id="returnLobby" class="secondary hidden">Return to lobby</button>
-  </section>
-
-  <section class="card hidden" id="gameCard">
-    <div class="game-top"><span id="progress">Question 1</span><span class="timer-badge"><span id="timer">30</span>s</span></div>
-    <div class="timer-track"><div id="timerBar"></div></div>
-    <h2 id="questionText">Waiting for question…</h2>
-    <p id="category" class="pill"></p>
-    <div id="options" class="options"></div>
-    <div class="game-actions">
-      <button id="submitAnswer" class="primary">Submit answer</button>
-      <button id="skipQuestion" class="secondary">Skip</button>
-      <button id="nextQuestion" class="secondary hidden">Next question</button>
-    </div>
-    <p id="answerFeedback" aria-live="polite"></p>
-    <div class="scores" id="scores"></div>
-  </section>
-
-  <section class="card hidden" id="chatCard">
-    <h2>Room chat</h2>
-    <div id="chatMessages" class="chat-messages"></div>
-    <form id="chatForm"><input id="chatInput" maxlength="500" placeholder="Write a message…" autocomplete="off"><button class="primary" type="submit">Send</button></form>
-  </section>
-  <footer>Play kindly. Keep questions respectful and non-explicit.</footer>
-</main>
-<script type="module" src="app.js"></script>
-</body>
-</html>
+<body><main class="app">
+<header class="site-header"><div class="logo">💞</div><div><h1>Pick &amp; Answer</h1><p class="muted">The Chemistry Test · Private 2-player rooms</p></div><a class="admin-link" href="admin.html">Admin</a></header>
+<div id="notice" class="notice" role="status" aria-live="polite"></div>
+<section class="card" id="profileCard"><h2>Your profile</h2>
+<div class="profile-edit"><div id="myAvatar" class="avatar large">🐼</div><div class="profile-fields"><label for="displayName">Display name</label><input id="displayName" maxlength="24" placeholder="Enter your name" autocomplete="nickname"><p class="muted">Your opponent can see your picture and name.</p></div></div>
+<div class="picture-actions"><label class="upload-button" for="profilePicture">📸 Choose picture</label><input type="file" id="profilePicture" accept="image/*" hidden><button type="button" id="useAvatar" class="secondary">Use an avatar instead</button></div>
+<p id="pictureStatus" class="muted">Select a picture from your gallery or choose an avatar.</p><h3>Choose an avatar</h3><div id="avatarChoices" class="avatar-choices"></div><button id="saveProfile" class="primary">Save profile</button></section>
+<section class="card" id="lobbyCard"><h2>Private lobby</h2><div class="two-col"><button id="createRoom" class="primary">Create a room</button><div><label for="roomCode">Room code</label><input id="roomCode" maxlength="6" placeholder="ABC123" autocapitalize="characters"><button id="joinRoom" class="secondary">Join room</button></div></div>
+<p id="roomLabel" class="room-label"></p><div id="players" class="players"></div>
+<section id="questionManager" class="question-manager hidden"><h3>👑 Prepare room questions</h3><p class="muted">Only the room creator can add or delete questions. There is no fixed question count.</p>
+<form id="roomQuestionForm"><label for="newCategory">Category</label><select id="newCategory"><option>General</option><option>Relationships</option><option>Funny</option><option>Getting to know you</option><option>Would you rather</option><option>Science</option><option value="__CUSTOM__">Custom category…</option></select><input id="customCategory" class="hidden" maxlength="40" placeholder="Type a custom category"><label for="newQuestion">Question</label><textarea id="newQuestion" maxlength="1000" rows="3" placeholder="Type an open-ended question…" required></textarea><button class="primary" id="addRoomQuestion" type="submit">Add question</button></form>
+<div class="question-toolbar"><label for="gameCategory">Questions to use</label><select id="gameCategory"><option value="__ALL__">Mixed categories — all questions</option></select></div><p id="questionCount" class="muted">0 questions added</p><div id="roomQuestionList" class="room-question-list"></div></section>
+<button id="startGame" class="primary hidden">Start game</button><button id="returnLobby" class="secondary hidden">Return to lobby</button></section>
+<section class="card hidden" id="gameCard"><div class="game-top"><span id="progress">Question 1</span><span class="timer-badge"><span id="timer">30</span>s</span></div><div class="timer-track"><div id="timerBar"></div></div><p class="muted" id="turnLabel"></p><h2 id="questionText">Waiting for question…</h2><p id="category" class="pill"></p>
+<form id="answerForm"><label for="typedAnswer">Your answer</label><textarea id="typedAnswer" maxlength="2000" rows="4" placeholder="Type your answer here…" required></textarea><div class="game-actions"><button id="submitAnswer" class="primary" type="submit">Submit answer</button><button id="skipQuestion" class="secondary" type="button">Skip question</button></div></form><p id="answerFeedback" aria-live="polite"></p><h3>Answers in this room</h3><div id="answerHistory" class="answer-history"></div></section>
+<section class="card hidden" id="chatCard"><h2>Room chat</h2><div id="chatMessages" class="chat-messages"></div><form id="chatForm"><input id="chatInput" maxlength="500" placeholder="Write a message…" autocomplete="off"><button class="primary" type="submit">Send</button></form></section>
+<footer>Play kindly. Keep questions respectful and non-explicit.</footer></main><script type="module" src="app.js"></script></body></html>

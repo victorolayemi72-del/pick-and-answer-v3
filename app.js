@@ -1,173 +1,40 @@
-import {
-  auth, db, signInGuest, onAuthStateChanged, collection, doc, getDoc, getDocs,
-  addDoc, updateDoc, setDoc, query, orderBy, limit, onSnapshot, serverTimestamp,
-  saveProfile, loadProfile, createRoom, joinRoom, startGame
-} from "./firebase.js";
-
-const $ = id => document.getElementById(id);
-const AVATARS = ["🐼","🐱","🐶","🦊","🐸","🐵","🐰","🐻","🐯","🦁","🐨","🐹","🐧","🦄","🐙","🦋","🌻","⭐"];
-let currentUser = null, profile = {displayName:"",photoURL:"",avatar:"🐼"}, roomCode = "", roomUnsubs = [], selectedOption = null, localTimer = null, currentGame = null, gameActionBusy = false;
-const safeText = value => String(value ?? "");
-function notice(message, type="") {
-  const el=$("notice"); el.textContent=message; el.className="notice show"+(type?" "+type:"");
+import {auth,db,signInGuest,onAuthStateChanged,collection,doc,getDoc,getDocs,addDoc,updateDoc,setDoc,deleteDoc,query,orderBy,limit,onSnapshot,serverTimestamp,runTransaction,saveProfile,loadProfile,createRoom,joinRoom,startGame,addRoomQuestion,deleteRoomQuestion} from "./firebase.js";
+const $=id=>document.getElementById(id), AVATARS=["🐼","🐱","🐶","🦊","🐸","🐵","🐰","🐻","🐯","🦁","🐨","🐹","🐧","🦄","🐙","🦋","🌻","⭐"];
+let currentUser=null,profile={displayName:"",photoURL:"",avatar:"🐼"},roomCode="",roomUnsubs=[],roomData=null,playersData=[],roomQuestions=[],game=null,busy=false,timerId=null,answerDocs=[];
+const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function note(s,type=""){ $("notice").textContent=s;$("notice").className="notice show "+type;}
+function avatarMarkup(p,cls=""){return p?.photoURL?`<div class="avatar ${cls}"><img src="${p.photoURL}" alt=""></div>`:`<div class="avatar ${cls}">${esc(p?.avatar||"🐼")}</div>`;}
+function renderAvatar(){ $("myAvatar").innerHTML=profile.photoURL?`<img src="${profile.photoURL}" alt="Your picture">`:esc(profile.avatar||"🐼");}
+function drawAvatars(){ $("avatarChoices").innerHTML="";AVATARS.forEach(a=>{const b=document.createElement("button");b.type="button";b.className="avatar-choice"+(!profile.photoURL&&profile.avatar===a?" selected":"");b.textContent=a;b.onclick=()=>{profile.avatar=a;profile.photoURL="";renderAvatar();drawAvatars();$("pictureStatus").textContent="Avatar selected. Save your profile.";};$("avatarChoices").append(b);});}
+async function compressImage(file){if(!file.type.startsWith("image/"))throw new Error("Choose an image file.");const bmp=await createImageBitmap(file),scale=Math.min(1,256/Math.max(bmp.width,bmp.height)),c=document.createElement("canvas");c.width=Math.max(1,Math.round(bmp.width*scale));c.height=Math.max(1,Math.round(bmp.height*scale));c.getContext("2d").drawImage(bmp,0,0,c.width,c.height);bmp.close?.();let data=c.toDataURL("image/jpeg",.7);if(data.length>180000)data=c.toDataURL("image/jpeg",.45);if(data.length>250000)throw new Error("Picture is too large. Choose another.");return data;}
+$("profilePicture").onchange=async e=>{const f=e.target.files?.[0];if(!f)return;try{profile.photoURL=await compressImage(f);renderAvatar();drawAvatars();$("pictureStatus").textContent="Picture selected. Save your profile.";}catch(err){note(err.message,"error");}finally{e.target.value="";}};
+$("useAvatar").onclick=()=>{profile.photoURL="";renderAvatar();drawAvatars();$("pictureStatus").textContent="Choose an avatar and save your profile.";};
+$("saveProfile").onclick=async()=>{try{profile=await saveProfile(currentUser.uid,{...profile,displayName:$("displayName").value});$("displayName").value=profile.displayName;renderAvatar();drawAvatars();note("Profile saved.","success");}catch(e){note(e.message,"error");}};
+async function getSavedProfile(){const name=$("displayName").value.trim();if(name.length<2)throw new Error("Enter a display name with at least 2 characters.");profile=await saveProfile(currentUser.uid,{...profile,displayName:name});return profile;}
+function stopRoom(){roomUnsubs.forEach(f=>f());roomUnsubs=[];if(timerId)clearInterval(timerId);timerId=null;}
+$("createRoom").onclick=async()=>{try{const p=await getSavedProfile();stopRoom();roomCode=await createRoom(p);listenRoom();note("Room created. Add questions and share the code with one friend.","success");}catch(e){note(e.message,"error");}};
+$("joinRoom").onclick=async()=>{try{const p=await getSavedProfile();stopRoom();roomCode=await joinRoom($("roomCode").value,p);listenRoom();note("Joined the room. The creator will prepare questions.","success");}catch(e){note(e.message,"error");}};
+$("newCategory").onchange=()=>{$("customCategory").classList.toggle("hidden",$("newCategory").value!=="__CUSTOM__");};
+$("roomQuestionForm").onsubmit=async e=>{e.preventDefault();try{const category=$("newCategory").value==="__CUSTOM__"?$("customCategory").value.trim():$("newCategory").value;await addRoomQuestion(roomCode,$("newQuestion").value,category);$("newQuestion").value="";note("Question added.","success");}catch(err){note(err.message,"error");}};
+$("startGame").onclick=async()=>{try{$("startGame").disabled=true;await startGame(roomCode,$("gameCategory").value);note("Game started.","success");}catch(e){note(e.message,"error");}finally{$("startGame").disabled=false;}};
+function renderPlayers(){$("players").innerHTML=playersData.map(p=>`<div class="player-card">${avatarMarkup(p)}<div><strong>${esc(p.displayName||"Player")}</strong><div class="muted">${p.uid===currentUser.uid?"You":"Opponent"}</div></div></div>`).join("");}
+function renderQuestionManager(){const creator=roomData?.createdBy===currentUser?.uid,waiting=roomData?.status==="waiting";$("questionManager").classList.toggle("hidden",!creator||!waiting);const cats=[...new Set(roomQuestions.map(q=>q.category||"General"))].sort(),old=$("gameCategory").value;$("gameCategory").innerHTML='<option value="__ALL__">Mixed categories — all questions</option>'+cats.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join("");if(cats.includes(old))$("gameCategory").value=old;$("questionCount").textContent=`${roomQuestions.length} question${roomQuestions.length===1?"":"s"} added`;$("roomQuestionList").innerHTML="";roomQuestions.forEach((q,i)=>{const row=document.createElement("div");row.className="room-question-item";const text=document.createElement("div"),title=document.createElement("strong"),cat=document.createElement("small");title.textContent=`${i+1}. ${q.text}`;cat.textContent=q.category||"General";text.append(title,cat);row.append(text);if(creator&&waiting){const b=document.createElement("button");b.className="danger";b.textContent="Delete";b.onclick=async()=>{try{await deleteRoomQuestion(roomCode,q.id);note("Question deleted.","success");}catch(e){note(e.message,"error");}};row.append(b);} $("roomQuestionList").append(row);});$("startGame").classList.toggle("hidden",!creator||!waiting);$("startGame").disabled=playersData.length!==2||!roomQuestions.length;if(creator&&waiting)$("startGame").textContent=playersData.length!==2?"Waiting for second player":!roomQuestions.length?"Add questions to start":"Start game";}
+function listenRoom(){stopRoom();$("chatCard").classList.remove("hidden");$("roomLabel").textContent=`Room code: ${roomCode}`;$("roomCode").value=roomCode;
+roomUnsubs.push(onSnapshot(doc(db,"rooms",roomCode),s=>{if(!s.exists()){note("Room no longer exists.","error");return;}roomData=s.data();$("roomLabel").textContent=`Room code: ${roomCode} · ${roomData.status==="playing"?"Game in progress":"Waiting for player"}`;renderQuestionManager();},e=>note(e.message,"error")));
+roomUnsubs.push(onSnapshot(collection(db,"rooms",roomCode,"players"),s=>{playersData=s.docs.map(d=>d.data());renderPlayers();renderQuestionManager();},e=>note(e.message,"error")));
+roomUnsubs.push(onSnapshot(collection(db,"rooms",roomCode,"roomQuestions"),s=>{roomQuestions=s.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>(a.createdAt?.seconds||0)-(b.createdAt?.seconds||0));renderQuestionManager();if(!roomQuestions.length&&roomData?.createdBy===currentUser.uid)note("No questions yet. Add questions above to start.","");},e=>note(e.message,"error")));
+roomUnsubs.push(onSnapshot(doc(db,"rooms",roomCode,"gameState","current"),s=>{if(s.exists()){game=s.data();$("gameCard").classList.remove("hidden");$("lobbyCard").classList.remove("hidden");renderGame();}},e=>note(e.message,"error")));
+roomUnsubs.push(onSnapshot(query(collection(db,"rooms",roomCode,"messages"),orderBy("createdAt","asc"),limit(100)),s=>{$("chatMessages").innerHTML="";s.forEach(d=>{const m=d.data(),div=document.createElement("div");div.className="chat-message"+(m.uid===currentUser.uid?" mine":"");const name=document.createElement("small"),body=document.createElement("div");name.textContent=m.displayName||"Player";body.textContent=m.text||"";div.append(name,body);$("chatMessages").append(div);});$("chatMessages").scrollTop=$("chatMessages").scrollHeight;},e=>note(e.message,"error")));
+roomUnsubs.push(onSnapshot(query(collection(db,"rooms",roomCode,"answers"),orderBy("createdAt","asc"),limit(200)),s=>{answerDocs=s.docs.map(d=>d.data());renderAnswers();},e=>note(e.message,"error")));
 }
-function clearNotice(){ $("notice").className="notice"; $("notice").textContent=""; }
-function avatarHTML(p, extra="") {
-  if (p?.photoURL) return `<div class="avatar ${extra}"><img alt="" src="${p.photoURL}"></div>`;
-  return `<div class="avatar ${extra}">${escapeHTML(p?.avatar || "🐼")}</div>`;
-}
-function escapeHTML(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function renderMyAvatar(){ $("myAvatar").innerHTML = profile.photoURL ? `<img alt="Your profile picture" src="${profile.photoURL}">` : escapeHTML(profile.avatar || "🐼"); }
-function drawAvatarChoices(){
-  $("avatarChoices").innerHTML="";
-  AVATARS.forEach(a=>{
-    const b=document.createElement("button"); b.type="button"; b.className="avatar-choice"+(!profile.photoURL&&profile.avatar===a?" selected":""); b.textContent=a; b.title=`Use ${a}`;
-    b.addEventListener("click",()=>{profile.avatar=a;profile.photoURL="";renderMyAvatar();drawAvatarChoices();$("pictureStatus").textContent=`${a} selected. Tap Save profile.`;});
-    $("avatarChoices").appendChild(b);
-  });
-}
-function getProfileFromInputs(){return {...profile,displayName:$("displayName").value.trim()};}
-function stopListeners(){roomUnsubs.forEach(fn=>{try{fn()}catch{}});roomUnsubs=[];if(localTimer)clearInterval(localTimer);localTimer=null;}
-function showRoomSections(){ $("chatCard").classList.remove("hidden"); $("roomLabel").textContent=`Room code: ${roomCode}`; $("roomCode").value=roomCode; }
-async function compressImage(file){
-  if(!file.type.startsWith("image/")) throw new Error("Please choose an image file.");
-  const source=await createImageBitmap(file);
-  const canvas=document.createElement("canvas"); const side=256;
-  const scale=Math.min(1,side/Math.max(source.width,source.height));
-  canvas.width=Math.max(1,Math.round(source.width*scale));canvas.height=Math.max(1,Math.round(source.height*scale));
-  const ctx=canvas.getContext("2d");ctx.drawImage(source,0,0,canvas.width,canvas.height);
-  source.close?.();
-  let data=canvas.toDataURL("image/jpeg",0.72);
-  if(data.length>180000)data=canvas.toDataURL("image/jpeg",0.5);
-  if(data.length>250000)throw new Error("That picture is too large. Choose another image.");
-  return data;
-}
-$("profilePicture").addEventListener("change",async e=>{
-  const file=e.target.files?.[0]; if(!file)return;
-  try{$("pictureStatus").textContent="Preparing picture…";profile.photoURL=await compressImage(file);renderMyAvatar();drawAvatarChoices();$("pictureStatus").textContent="Picture selected. Tap Save profile to save it.";}
-  catch(err){profile.photoURL="";$("pictureStatus").textContent=err.message;notice(err.message,"error");}
-  finally{e.target.value="";}
-});
-$("useAvatar").addEventListener("click",()=>{profile.photoURL="";renderMyAvatar();drawAvatarChoices();$("pictureStatus").textContent="Choose an avatar below, then tap Save profile.";});
-$("saveProfile").addEventListener("click",async()=>{
-  clearNotice(); if(!currentUser){notice("Connecting… wait a moment and try again.");return;}
-  const next=getProfileFromInputs();
-  try{ $("saveProfile").disabled=true; profile=await saveProfile(currentUser.uid,next);$("displayName").value=profile.displayName;renderMyAvatar();drawAvatarChoices();$("pictureStatus").textContent="Profile saved successfully.";notice("Profile saved! You can create or join a room.","success");}
-  catch(err){notice(`Profile could not be saved: ${err.message}`,"error");}
-  finally{$("saveProfile").disabled=false;}
-});
-async function ensureSavedProfile(){
-  if(!currentUser)throw new Error("Still connecting to the game. Try again in a moment.");
-  const p=getProfileFromInputs();
-  if(p.displayName.length<2)throw new Error("Enter a display name with at least 2 characters.");
-  profile=await saveProfile(currentUser.uid,p);return profile;
-}
-$("createRoom").addEventListener("click",async()=>{
-  clearNotice();try{const p=await ensureSavedProfile();stopListeners();roomCode=await createRoom(p);subscribeRoom();notice("Room created. Share the six-character code with one friend.","success");}
-  catch(e){notice(e.message,"error");}
-});
-$("joinRoom").addEventListener("click",async()=>{
-  clearNotice();try{const p=await ensureSavedProfile();stopListeners();roomCode=await joinRoom($("roomCode").value,p);subscribeRoom();notice("You joined the room.","success");}
-  catch(e){notice(e.message,"error");}
-});
-$("startGame").addEventListener("click",async()=>{
-  try{$("startGame").disabled=true;await startGame(roomCode);notice("Game started!","success");}
-  catch(e){notice(e.message,"error");}
-  finally{$("startGame").disabled=false;}
-});
-$("returnLobby").addEventListener("click",()=>{$("gameCard").classList.add("hidden");$("lobbyCard").classList.remove("hidden");$("returnLobby").classList.add("hidden");});
-function subscribeRoom(){
-  stopListeners();showRoomSections();
-  roomUnsubs.push(onSnapshot(collection(db,"rooms",roomCode,"players"),snap=>{
-    const players=snap.docs.map(d=>d.data());
-    $("players").innerHTML=players.map(p=>`<div class="player-card">${avatarHTML(p)}<div><strong>${escapeHTML(p.displayName||"Player")}</strong><div class="muted">${p.uid===currentUser?.uid?"You":"Opponent"}</div></div></div>`).join("");
-    const roomCreator=players.length && players.some(p=>p.uid===currentUser?.uid);
-    $("startGame").classList.toggle("hidden",!roomCreator);
-    getDoc(doc(db,"rooms",roomCode)).then(s=>{$("startGame").classList.toggle("hidden",!s.exists()||s.data().createdBy!==currentUser?.uid||s.data().status!=="waiting");}).catch(()=>{});
-  },err=>notice(`Players could not load: ${err.message}`,"error")));
-  roomUnsubs.push(onSnapshot(doc(db,"rooms",roomCode),snap=>{
-    if(!snap.exists()){notice("This room no longer exists.","error");return;}
-    const r=snap.data();$("roomLabel").textContent=`Room code: ${roomCode} · ${r.status==="playing"?"Game in progress":"Waiting for player"}`;
-    if(r.status==="playing"){$("startGame").classList.add("hidden");$("gameCard").classList.remove("hidden");}
-  }));
-  roomUnsubs.push(onSnapshot(doc(db,"rooms",roomCode,"gameState","current"),snap=>{
-    if(snap.exists()){currentGame=snap.data();$("gameCard").classList.remove("hidden");renderGame();}
-  },err=>notice(`Game state error: ${err.message}`,"error")));
-  roomUnsubs.push(onSnapshot(query(collection(db,"rooms",roomCode,"messages"),orderBy("createdAt","asc"),limit(100)),snap=>{
-    $("chatMessages").innerHTML="";snap.forEach(d=>{const m=d.data();const div=document.createElement("div");div.className="chat-message"+(m.uid===currentUser?.uid?" mine":"");const small=document.createElement("small");small.textContent=m.displayName||"Player";const body=document.createElement("div");body.textContent=m.text||"";div.append(small,body);$("chatMessages").appendChild(div);});$("chatMessages").scrollTop=$("chatMessages").scrollHeight;
-  },err=>notice(`Chat unavailable: ${err.message}`,"error")));
-}
-function renderScores(){
-  const scores=currentGame?.scores||{};const order=currentGame?.playerOrder||[];
-  $("scores").innerHTML=order.map(uid=>{const name=uid===currentUser?.uid?profile.displayName:(document.querySelector(`.player-card .muted`)?.textContent||"Player");return `<div class="score-card"><span>${uid===currentUser?.uid?"You": "Opponent"}</span><strong>${Number(scores[uid]||0)} points</strong></div>`;}).join("");
-}
-function renderGame(){
-  if(!currentGame)return;
-  const questions=currentGame.questions||[],idx=Number(currentGame.currentQuestionIndex||0),q=questions[idx];
-  if(currentGame.status==="finished"||!q){
-    $("questionText").textContent="Game complete! 🎉";$("category").textContent="Final results";$("options").innerHTML="";
-    $("progress").textContent="Finished";$("timer").textContent="0";$("answerFeedback").textContent="Thanks for playing!";$("submitAnswer").classList.add("hidden");$("skipQuestion").classList.add("hidden");$("nextQuestion").classList.add("hidden");$("returnLobby").classList.remove("hidden");renderScores();return;
-  }
-  $("progress").textContent=`Question ${idx+1} of ${questions.length}`;$("questionText").textContent=q.text;$("category").textContent=q.category||"General";
-  const myTurn=currentGame.currentPlayerUid===currentUser?.uid;
-  const already=currentGame.answered===true;
-  $("answerFeedback").textContent=currentGame.lastFeedback|| (myTurn?"Your turn — choose an answer.":"Waiting for your opponent's turn.");
-  $("options").innerHTML="";
-  (q.options||[]).forEach((option,i)=>{const b=document.createElement("button");b.type="button";b.className="option"+(selectedOption===i?" selected":"");b.textContent=`${String.fromCharCode(65+i)}. ${option}`;b.disabled=!myTurn||already;b.addEventListener("click",()=>{selectedOption=i;renderGame();});$("options").appendChild(b);});
-  $("submitAnswer").classList.toggle("hidden",!myTurn||already);$("skipQuestion").classList.toggle("hidden",!myTurn||already);$("nextQuestion").classList.toggle("hidden",!already);
-  $("submitAnswer").disabled=selectedOption===null||gameActionBusy;
-  renderScores();startLocalTimer();
-}
-function startLocalTimer(){
-  if(localTimer)clearInterval(localTimer);
-  if(!currentGame||currentGame.status==="finished"||currentGame.answered)return;
-  const tick=()=>{const remaining=Math.max(0,Math.ceil((Number(currentGame.turnEndsAt||Date.now())-Date.now())/1000));$("timer").textContent=String(remaining);$("timerBar").style.width=`${Math.min(100,remaining/30*100)}%`;if(remaining===0&&currentGame.currentPlayerUid===currentUser?.uid)advanceTurn("Time expired.");};
-  tick();localTimer=setInterval(tick,500);
-}
-async function advanceTurn(feedback){
-  if(gameActionBusy||!currentGame||currentGame.currentPlayerUid!==currentUser?.uid)return;
-  gameActionBusy=true;
-  try{
-    const ref=doc(db,"rooms",roomCode,"gameState","current");
-    await runSafeTurn(ref,feedback,null);
-  }catch(e){notice(`Could not advance turn: ${e.message}`,"error");}
-  finally{gameActionBusy=false;selectedOption=null;}
-}
-async function runSafeTurn(ref,feedback,chosenAnswer){
-  // Read inside a transaction to prevent two clients advancing the same turn.
-  const {runTransaction}=await import("https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore.js");
-  await runTransaction(db,async tx=>{
-    const snap=await tx.get(ref);if(!snap.exists())throw new Error("Game state missing.");
-    const s=snap.data();if(s.currentPlayerUid!==currentUser.uid||s.answered||s.status==="finished")return;
-    const qs=s.questions||[],q=qs[s.currentQuestionIndex];if(!q)return;
-    let scores={...(s.scores||{})};
-    let correct=false;
-    if(chosenAnswer!==null){const chosen=q.options[chosenAnswer];correct=String(chosen)===String(q.answer)||String(chosenAnswer)===String(q.answer);if(correct)scores[currentUser.uid]=(scores[currentUser.uid]||0)+1;}
-    const nextIndex=Number(s.currentQuestionIndex||0)+1;
-    const order=s.playerOrder||[];const other=order.find(uid=>uid!==currentUser.uid)||currentUser.uid;
-    const finished=nextIndex>=qs.length;
-    tx.update(ref,{scores,currentQuestionIndex:nextIndex,currentPlayerUid:finished?currentUser.uid:other,answered:false,turnEndsAt:Date.now()+30000,lastFeedback:finished?"Game complete!":(correct?"Correct! +1 point":feedback||"Turn skipped."),status:finished?"finished":"playing"});
-  });
-}
-$("submitAnswer").addEventListener("click",async()=>{
-  if(selectedOption===null||gameActionBusy||!currentGame)return;
-  gameActionBusy=true;$("submitAnswer").disabled=true;
-  try{await runSafeTurn(doc(db,"rooms",roomCode,"gameState","current"),"Answer submitted.",selectedOption);selectedOption=null;}
-  catch(e){notice(`Answer could not be submitted: ${e.message}`,"error");}
-  finally{gameActionBusy=false;}
-});
-$("skipQuestion").addEventListener("click",()=>advanceTurn("Question skipped."));
-$("nextQuestion").addEventListener("click",()=>{selectedOption=null;renderGame();});
-$("chatForm").addEventListener("submit",async e=>{
-  e.preventDefault();const text=$("chatInput").value.trim();if(!text||!roomCode||!currentUser)return;
-  try{await addDoc(collection(db,"rooms",roomCode,"messages"),{uid:currentUser.uid,displayName:profile.displayName,text:text.slice(0,500),createdAt:serverTimestamp()});$("chatInput").value="";}
-  catch(err){notice(`Message not sent: ${err.message}`,"error");}
-});
-$("roomCode").addEventListener("input",e=>{e.target.value=e.target.value.toUpperCase().replace(/[^A-Z0-9]/g,"").slice(0,6);});
-renderMyAvatar();drawAvatarChoices();
-onAuthStateChanged(auth,async user=>{
-  currentUser=user;
-  if(!user){try{await signInGuest();}catch(e){notice(`Firebase sign-in failed: ${e.message}`,"error");}return;}
-  try{const saved=await loadProfile(user.uid);if(saved){profile=saved;$("displayName").value=saved.displayName;renderMyAvatar();drawAvatarChoices();$("pictureStatus").textContent="Your saved profile is ready.";}}
-  catch(e){notice(`Profile could not load: ${e.message}`,"error");}
-});
+function renderAnswers(){$("answerHistory").innerHTML="";answerDocs.forEach(a=>{const card=document.createElement("div");card.className="answer-card";const n=document.createElement("strong"),q=document.createElement("small"),p=document.createElement("p");n.textContent=a.displayName||"Player";q.textContent=`Question ${Number(a.questionIndex||0)+1}`;p.textContent=a.skipped?"Skipped":a.text||"";card.append(n,q,p);$("answerHistory").append(card);});}
+function renderGame(){if(!game)return;const qs=game.questions||[],i=Number(game.currentQuestionIndex||0),q=qs[i];$("gameCard").classList.remove("hidden");if(game.status==="finished"||!q){$("questionText").textContent="All questions completed! 🎉";$("category").textContent="Finished";$("progress").textContent="Finished";$("timer").textContent="0";$("timerBar").style.width="0%";$("turnLabel").textContent="Thanks for playing!";$("answerForm").classList.add("hidden");$("returnLobby").classList.remove("hidden");return;}$("answerForm").classList.remove("hidden");$("progress").textContent=`Question ${i+1} of ${qs.length}`;$("questionText").textContent=q.text;$("category").textContent=q.category||"General";const mine=game.currentPlayerUid===currentUser.uid;$("turnLabel").textContent=mine?"It's your turn to answer.":"It's your opponent's turn.";$("answerFeedback").textContent=game.lastFeedback||"";$("typedAnswer").disabled=!mine||busy;$("submitAnswer").disabled=!mine||busy;$("skipQuestion").disabled=!mine||busy;startTimer();}
+function startTimer(){if(timerId)clearInterval(timerId);if(!game||game.status!=="playing")return;const tick=()=>{const left=Math.max(0,Math.ceil((Number(game.turnEndsAt||Date.now())-Date.now())/1000));$("timer").textContent=String(left);$("timerBar").style.width=`${left/30*100}%`;if(left===0)$("answerFeedback").textContent="Time is up — you can still answer. The timer does not submit for you.";};tick();timerId=setInterval(tick,500);}
+async function advanceTurn(text,skipped=false){if(busy||!game||game.currentPlayerUid!==currentUser.uid)return;busy=true;try{const stateRef=doc(db,"rooms",roomCode,"gameState","current"),idx=Number(game.currentQuestionIndex||0),q=(game.questions||[])[idx];if(!q)throw new Error("No current question.");const answerRef=doc(db,"rooms",roomCode,"answers",`${q.id}_${currentUser.uid}`);await setDoc(answerRef,{uid:currentUser.uid,displayName:profile.displayName,questionId:q.id,questionIndex:idx,text:skipped?"":text,skipped,createdAt:serverTimestamp()},{merge:true});await runTransaction(db,async tx=>{const s=await tx.get(stateRef);if(!s.exists())throw new Error("Game state not found.");const d=s.data();if(d.currentPlayerUid!==currentUser.uid)throw new Error("It is not your turn anymore.");const nextIndex=Number(d.currentQuestionIndex||0)+1,order=d.playerOrder||[],currentPos=order.indexOf(currentUser.uid),nextPlayer=order[(currentPos+1)%order.length];if(nextIndex>=(d.questions||[]).length){tx.update(stateRef,{status:"finished",lastFeedback:skipped?"Question skipped. Game finished.":"Answer submitted. Game finished."});}else{tx.update(stateRef,{currentQuestionIndex:nextIndex,currentPlayerUid:nextPlayer,turnStartedAt:Date.now(),turnEndsAt:Date.now()+30000,lastFeedback:skipped?"Question skipped.":"Answer submitted."});}});$("typedAnswer").value="";}catch(e){note(e.message,"error");}finally{busy=false;if(game)renderGame();}}
+$("answerForm").onsubmit=e=>{e.preventDefault();const text=$("typedAnswer").value.trim();if(!text){note("Type an answer or choose Skip question.","error");return;}advanceTurn(text,false);};
+$("skipQuestion").onclick=()=>advanceTurn("",true);
+$("chatForm").onsubmit=async e=>{e.preventDefault();const text=$("chatInput").value.trim();if(!text||!roomCode)return;try{await addDoc(collection(db,"rooms",roomCode,"messages"),{uid:currentUser.uid,displayName:profile.displayName,text:text.slice(0,500),createdAt:serverTimestamp()});$("chatInput").value="";}catch(err){note(`Message not sent: ${err.message}`,"error");}};
+$("returnLobby").onclick=()=>{$("gameCard").classList.add("hidden");$("lobbyCard").classList.remove("hidden");$("returnLobby").classList.add("hidden");};
+onAuthStateChanged(auth,async user=>{currentUser=user;if(!user)return;try{await loadProfile(user.uid).then(p=>{if(p){profile=p;$("displayName").value=p.displayName;renderAvatar();drawAvatars();}});note("Connected. Save your profile, then create or join a room.","success");}catch(e){note(`Connected, but profile could not load: ${e.message}`,"error");}});
+signInGuest().catch(e=>note(`Sign-in failed: ${e.message}`,"error"));
+drawAvatars();
